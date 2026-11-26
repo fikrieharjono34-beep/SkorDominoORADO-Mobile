@@ -3,7 +3,9 @@ name: Build ORADO Domino 101 APK (arm64-v8a)
 on:
   workflow_dispatch:
   push:
-    branches: [ main, master ]
+    branches:
+      - main
+      - master
 
 jobs:
   build-apk:
