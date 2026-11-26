@@ -13,6 +13,22 @@ def resource_path(relative_path: str) -> str:
     return os.path.join(base_path, relative_path)
 
 
+def cari_aset(nama_file: str) -> str | None:
+    base_dir = os.path.dirname(os.path.abspath(__file__))
+    kandidat = [
+        resource_path(os.path.join("assets", nama_file)),
+        resource_path(nama_file),
+        os.path.join(base_dir, "assets", nama_file),
+        os.path.join(base_dir, nama_file),
+        os.path.join(os.getcwd(), "assets", nama_file),
+        os.path.join(os.getcwd(), nama_file),
+    ]
+    for path in kandidat:
+        if os.path.exists(path):
+            return path
+    return None
+
+
 def main(page: ft.Page):
     page.title = "ORADO Kota Cirebon - The Law of Domino 101"
     page.theme_mode = ft.ThemeMode.DARK
@@ -24,9 +40,9 @@ def main(page: ft.Page):
     os.makedirs(app_data_dir, exist_ok=True)
     autosave_file = os.path.join(app_data_dir, "orado_autosave_2026.json")
 
-    logo_path = resource_path("logo_orado_ok.png")
+    logo_path = cari_aset("logo_orado_ok.png")
     logo_b64 = ""
-    if os.path.exists(logo_path):
+    if logo_path:
         with open(logo_path, "rb") as f:
             logo_b64 = "data:image/png;base64," + base64.b64encode(f.read()).decode()
 
@@ -59,6 +75,39 @@ def main(page: ft.Page):
         ("5-5", "Balak Lima"),
         ("6-6", "Balak Enam"),
     ]
+
+    # Setup Audio (intro_mlbb.wav, ui_click.wav, ui_shake.wav)
+    audio_intro = None
+    audio_click = None
+    audio_shake = None
+    if hasattr(ft, "Audio"):
+        try:
+            audio_intro = ft.Audio(src="intro_mlbb.wav", autoplay=False)
+            audio_click = ft.Audio(src="ui_click.wav", autoplay=False)
+            audio_shake = ft.Audio(src="ui_shake.wav", autoplay=False)
+            page.overlay.extend([audio_intro, audio_click, audio_shake])
+        except Exception:
+            audio_intro = audio_click = audio_shake = None
+
+    def mainkan_suara(player, file_wav: str, abaikan_saklar: bool = False):
+        if player is None:
+            return
+        if not abaikan_saklar and not state["getar_aktif"]:
+            return
+        try:
+            player.src = file_wav
+            player.play()
+        except Exception:
+            pass
+
+    def getar_perangkat(berat: bool = False):
+        if not state["getar_aktif"]:
+            return
+        try:
+            if hasattr(page, "haptic_feedback"):
+                page.haptic_feedback("heavy_impact" if berat else "light_impact")
+        except Exception:
+            pass
 
     def snapshot_state() -> dict:
         return {
@@ -101,9 +150,15 @@ def main(page: ft.Page):
         except Exception:
             pass
 
-    def picu_getar(target: ft.Control):
+    def picu_getar(target: ft.Control, mode: str = "click"):
         if not state["getar_aktif"]:
             return
+        if mode == "shake":
+            mainkan_suara(audio_shake, "ui_shake.wav")
+            getar_perangkat(berat=True)
+        else:
+            mainkan_suara(audio_click, "ui_click.wav")
+            getar_perangkat(berat=False)
         page.run_task(_animasi_getar_kontrol, target)
 
     def info_balak_sekarang():
@@ -227,8 +282,8 @@ def main(page: ft.Page):
             state["set_ke"] += 1
             state["ronde_ke"] = 1
 
-    def proses_skor(tim: str, poin: int, keterangan: str = "Poin ronde", sumber_kontrol: ft.Control | None = None):
-        picu_getar(sumber_kontrol or (kartu_a if tim == "A" else kartu_b))
+    def proses_skor(tim: str, poin: int, keterangan: str = "Poin ronde", sumber_kontrol: ft.Control | None = None, mode_getar: str = "click"):
+        picu_getar(sumber_kontrol or (kartu_a if tim == "A" else kartu_b), mode=mode_getar)
         if state["selesai"]:
             tampilkan_notif("Pertandingan sudah selesai. Tekan 'Ulang Papan' untuk mulai baru.", "#B91C1C")
             return
@@ -273,14 +328,14 @@ def main(page: ft.Page):
         try:
             nilai = int(field.value.strip())
         except (ValueError, AttributeError):
-            picu_getar(sumber_kontrol or field)
+            picu_getar(sumber_kontrol or field, mode="shake")
             tampilkan_notif("Isi angka poin ronde terlebih dahulu.", "#B45309")
             return
         field.value = ""
-        proses_skor(tim, nilai, "Poin ronde", sumber_kontrol=sumber_kontrol)
+        proses_skor(tim, nilai, "Poin ronde", sumber_kontrol=sumber_kontrol, mode_getar="click")
 
     def menang_spesial(tim: str, jenis: str, sumber_kontrol: ft.Control | None = None):
-        picu_getar(sumber_kontrol or (kartu_a if tim == "A" else kartu_b))
+        picu_getar(sumber_kontrol or (kartu_a if tim == "A" else kartu_b), mode="shake")
         if state["selesai"]:
             return
         rekam_undo()
@@ -314,7 +369,7 @@ def main(page: ft.Page):
             segarkan_tampilan()
 
     def batalkan_aksi_terakhir(e):
-        picu_getar(e.control)
+        picu_getar(e.control, mode="click")
         if not undo_stack:
             tampilkan_notif("Tidak ada aksi yang dapat dibatalkan.", "#B45309")
             return
@@ -348,13 +403,13 @@ def main(page: ft.Page):
             if state["timer_detik"] <= 0:
                 state["timer_jalan"] = False
                 btn_timer_toggle.content = "Mulai 30s"
-                picu_getar(panel_tengah_info)
+                picu_getar(panel_tengah_info, mode="shake")
                 tambah_log("WAKTU 30 DETIK HABIS! Penalti +11 poin untuk lawan.")
                 tampilkan_notif("Waktu 30 detik habis! Pilih tim penerima +11 poin penalti.", "#B91C1C")
                 break
 
     def mulai_pause_timer(e):
-        picu_getar(e.control)
+        picu_getar(e.control, mode="click")
         if state["selesai"]:
             return
         state["timer_jalan"] = not state["timer_jalan"]
@@ -364,7 +419,7 @@ def main(page: ft.Page):
             page.run_task(loop_timer)
 
     def reset_timer(e):
-        picu_getar(e.control)
+        picu_getar(e.control, mode="click")
         state["timer_jalan"] = False
         state["timer_detik"] = 30
         txt_timer.value = "30"
@@ -382,7 +437,7 @@ def main(page: ft.Page):
     )
 
     def eksekusi_reset_semua(e):
-        picu_getar(e.control)
+        picu_getar(e.control, mode="shake")
         dialog_reset.open = False
         undo_stack.clear()
         state.update({
@@ -417,12 +472,12 @@ def main(page: ft.Page):
     page.overlay.append(dialog_reset)
 
     def buka_dialog_reset(e):
-        picu_getar(e.control)
+        picu_getar(e.control, mode="click")
         dialog_reset.open = True
         page.update()
 
     async def salin_rekap_wa(e):
-        picu_getar(e.control)
+        picu_getar(e.control, mode="click")
         status_txt = "SELESAI" if state["selesai"] else f"Berjalan - Set {state['set_ke']} Ronde {state['ronde_ke']}"
         if state["hasil_set"]:
             rincian_set = "\n".join(
@@ -465,8 +520,11 @@ def main(page: ft.Page):
     def ubah_getar(e):
         state["getar_aktif"] = e.control.value
         simpan_autosave()
+        if state["getar_aktif"]:
+            getar_perangkat(berat=False)
+            mainkan_suara(audio_click, "ui_click.wav")
         tampilkan_notif(
-            "Paket Getar UI Aktif" if state["getar_aktif"] else "Paket Getar UI Dimatikan",
+            "Suara & Getar UI Aktif" if state["getar_aktif"] else "Suara & Getar UI Dimatikan",
             "#1E293B",
         )
 
@@ -482,17 +540,14 @@ def main(page: ft.Page):
     )
 
     saklar_getar = ft.Switch(
-        label="Getar UI",
+        label="Suara & Getar",
         value=True,
         active_color="#38BDF8",
         on_change=ubah_getar,
     )
 
-    logo_widget = (
-        [ft.Image(src=logo_b64, width=48, height=48)]
-        if logo_b64
-        else []
-    )
+    logo_src = logo_b64 if logo_b64 else "logo_orado_ok.png"
+    logo_widget = [ft.Image(src=logo_src, width=48, height=48)]
 
     header = ft.Column(
         [
@@ -604,7 +659,7 @@ def main(page: ft.Page):
                 f"+{nilai_pen}",
                 animate_offset=ft.Animation(110, ft.AnimationCurve.EASE_IN_OUT),
             )
-            b_pen.on_click = lambda e, t=tim, p=nilai_pen, b=b_pen: proses_skor(t, p, f"Penalti +{p}", b)
+            b_pen.on_click = lambda e, t=tim, p=nilai_pen, b=b_pen: proses_skor(t, p, f"Penalti +{p}", b, mode_getar="shake")
             penalti_btns.append(b_pen)
 
         return ft.Container(
@@ -712,7 +767,7 @@ def main(page: ft.Page):
     )
 
     def toggle_mode_panggung(e):
-        picu_getar(e.control)
+        picu_getar(e.control, mode="click")
         mode_panggung["aktif"] = not mode_panggung["aktif"]
         panggung = mode_panggung["aktif"]
         btn_panggung.content = "Keluar Panggung" if panggung else "Mode Panggung"
@@ -770,7 +825,7 @@ def main(page: ft.Page):
         opacity=0.0,
         animate_scale=ft.Animation(650, ft.AnimationCurve.EASE_OUT_BACK),
         animate_opacity=ft.Animation(500, ft.AnimationCurve.EASE_OUT),
-        content=ft.Image(src=logo_b64, width=160, height=160) if logo_b64 else ft.Text("ORADO", size=30, weight=ft.FontWeight.BOLD, color="#DC2626"),
+        content=ft.Image(src=logo_src, width=160, height=160),
     )
 
     splash_title = ft.Column(
@@ -831,6 +886,8 @@ def main(page: ft.Page):
 
     async def jalankan_intro_ml():
         await asyncio.sleep(0.15)
+        mainkan_suara(audio_intro, "intro_mlbb.wav", abaikan_saklar=True)
+        getar_perangkat(berat=True)
         splash_logo.scale = 1.08
         splash_logo.opacity = 1.0
         splash_bar.value = 0.35
@@ -863,4 +920,4 @@ def main(page: ft.Page):
     page.run_task(jalankan_intro_ml)
 
 
-ft.run(main)
+ft.run(main, assets_dir="assets")
