@@ -61,7 +61,13 @@ def _worker_audio_wasit():
                 path_suara = _cari_file_suara(klip)
                 if path_suara:
                     try:
-                        playsound(path_suara)
+                        try:
+
+                            playsound(path_suara)
+
+                        except Exception:
+
+                            pass
                     except Exception:
                         pass
         antrean_audio.task_done()
@@ -82,7 +88,13 @@ def _worker_efek_ui():
             path_suara = _cari_file_suara(efek)
             if path_suara:
                 try:
-                    playsound(path_suara)
+                    try:
+
+                        playsound(path_suara)
+
+                    except Exception:
+
+                        pass
                 except Exception:
                     pass
         antrean_efek.task_done()
