@@ -1,1 +1,2 @@
-flet>=0.80.0
+flet>=1.1.0,<2.0.0
+flet-audio
