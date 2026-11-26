@@ -1046,4 +1046,4 @@ def main(page: ft.Page):
     page.run_task(jalankan_intro_ml)
 
 
-ft.run(main, view=ft.AppView.WEB_BROWSER)
+ft.app(target=main)
