@@ -28,6 +28,7 @@ BORDER_COLOR = "#263241"
 GOLD = "#F5B82E"
 EMERALD = "#10B981"
 RED_ALERT = "#EF4444"
+BLUE_TEAM = "#3B82F6"
 AMBER = "#F59E0B"
 PURPLE_SPECIAL = "#8B5CF6"
 TEXT_PRIMARY = "#F8FAFC"
@@ -155,8 +156,8 @@ def main(page: ft.Page):
 
     # --- STATE PERTANDINGAN RESMI ORADO 2026 ---
     state = {
-        "team_a": "TIM A",
-        "team_b": "TIM B",
+        "team_a": "TIM MERAH",
+        "team_b": "TIM BIRU",
         "match_format": "BO3",  # "BO3" = Reguler (Menang 2 Set), "BO5" = Final (Menang 3 Set)
         "score_a": 0,
         "score_b": 0,
@@ -173,6 +174,17 @@ def main(page: ft.Page):
         "sound_on": True,
         "history": [],
         "referee_notes": [],
+        # State Persetujuan Hasil Akhir Pertandingan
+        "match_finished": False,
+        "referee_name": "",
+        "red_rep_name": "",
+        "blue_rep_name": "",
+        "approve_referee": False,
+        "approve_red": False,
+        "approve_blue": False,
+        "approve_referee_time": "",
+        "approve_red_time": "",
+        "approve_blue_time": "",
     }
 
     saved_matches: list[dict] = []
@@ -206,6 +218,15 @@ def main(page: ft.Page):
 
     load_state()
 
+    def reset_approval_flags():
+        state["match_finished"] = False
+        state["approve_referee"] = False
+        state["approve_red"] = False
+        state["approve_blue"] = False
+        state["approve_referee_time"] = ""
+        state["approve_red_time"] = ""
+        state["approve_blue_time"] = ""
+
     # --- SISTEM AUDIO & SUARA WASIT INDONESIA (flet-audio) ---
     chime_paths = build_chime_sfx()
     audio_players = {}
@@ -213,7 +234,6 @@ def main(page: ft.Page):
     ReleaseMode = getattr(fta, "ReleaseMode", None) if fta else None
 
     if AudioClass:
-        # 1. Efek nada ketukan & fanfare dari memori temp
         for sound_key, wav_path in chime_paths.items():
             try:
                 kwargs = {
@@ -232,7 +252,6 @@ def main(page: ft.Page):
             except Exception:
                 pass
 
-        # 2. Suara manusia bahasa Indonesia yang dibundel di assets/
         voice_assets = {
             "v_ringan": "voice_ringan.mp3",
             "v_pen11": "voice_penalti_11.mp3",
@@ -315,7 +334,7 @@ def main(page: ft.Page):
 
     def show_toast(msg: str):
         try:
-            sb = ft.SnackBar(content=ft.Text(msg, color=TEXT_PRIMARY), bgcolor=CARD_ACTIVE, duration=2000)
+            sb = ft.SnackBar(content=ft.Text(msg, color=TEXT_PRIMARY), bgcolor=CARD_ACTIVE, duration=2200)
             if hasattr(page, "show_snack_bar"):
                 page.show_snack_bar(sb)
             else:
@@ -391,6 +410,99 @@ def main(page: ft.Page):
     history_column = ft.Column(spacing=6)
     archive_btn_label = ft.Text("", size=12, weight=ft.FontWeight.BOLD, color=GOLD)
 
+    # --- WIDGET PERSETUJUAN HASIL AKHIR PERTANDINGAN ---
+    approval_summary_text = ft.Text("", size=11, weight=ft.FontWeight.W_600, color=TEXT_MUTED)
+    approval_status_banner = ft.Text("", size=12, weight=ft.FontWeight.BOLD, color=AMBER)
+
+    def on_approval_name_change(field_key: str):
+        def _handler(e):
+            state[field_key] = e.control.value or ""
+            save_state()
+        return _handler
+
+    ref_name_field = ft.TextField(
+        label="Nama Wasit",
+        hint_text="Isi nama wasit",
+        value=state.get("referee_name", ""),
+        border_color=BORDER_COLOR,
+        focused_border_color=GOLD,
+        height=42,
+        text_size=12,
+        content_padding=pad_sym(10, 6),
+        expand=True,
+        on_change=on_approval_name_change("referee_name"),
+    )
+
+    red_rep_field = ft.TextField(
+        label="Perwakilan Tim Merah",
+        hint_text="Kapten / Pemain Merah",
+        value=state.get("red_rep_name", ""),
+        border_color=BORDER_COLOR,
+        focused_border_color=RED_ALERT,
+        height=42,
+        text_size=12,
+        content_padding=pad_sym(10, 6),
+        expand=True,
+        on_change=on_approval_name_change("red_rep_name"),
+    )
+
+    blue_rep_field = ft.TextField(
+        label="Perwakilan Tim Biru",
+        hint_text="Kapten / Pemain Biru",
+        value=state.get("blue_rep_name", ""),
+        border_color=BORDER_COLOR,
+        focused_border_color=BLUE_TEAM,
+        height=42,
+        text_size=12,
+        content_padding=pad_sym(10, 6),
+        expand=True,
+        on_change=on_approval_name_change("blue_rep_name"),
+    )
+
+    ref_approve_subtext = ft.Text("", size=10, color=TEXT_MUTED)
+    red_approve_subtext = ft.Text("", size=10, color=TEXT_MUTED)
+    blue_approve_subtext = ft.Text("", size=10, color=TEXT_MUTED)
+
+    red_team_label_text = ft.Text("", size=12, weight=ft.FontWeight.BOLD, color=RED_ALERT)
+    blue_team_label_text = ft.Text("", size=12, weight=ft.FontWeight.BOLD, color=BLUE_TEAM)
+
+    btn_approve_ref = make_button("Setujui", CARD_ACTIVE, TEXT_PRIMARY, None, height=40)
+    btn_approve_red = make_button("Setujui", CARD_ACTIVE, TEXT_PRIMARY, None, height=40)
+    btn_approve_blue = make_button("Setujui", CARD_ACTIVE, TEXT_PRIMARY, None, height=40)
+
+    def toggle_party_approval(party: str):
+        now_str = datetime.now().strftime("%H:%M WIB")
+        if party == "ref":
+            new_val = not state.get("approve_referee", False)
+            state["approve_referee"] = new_val
+            state["approve_referee_time"] = now_str if new_val else ""
+        elif party == "red":
+            new_val = not state.get("approve_red", False)
+            state["approve_red"] = new_val
+            state["approve_red_time"] = now_str if new_val else ""
+        elif party == "blue":
+            new_val = not state.get("approve_blue", False)
+            state["approve_blue"] = new_val
+            state["approve_blue_time"] = now_str if new_val else ""
+
+        all_ok = (
+            state.get("approve_referee", False)
+            and state.get("approve_red", False)
+            and state.get("approve_blue", False)
+        )
+        if all_ok:
+            play_sfx("intro")
+            show_toast("Sah! Wasit, Tim Merah & Tim Biru telah menyetujui hasil akhir!")
+        else:
+            play_sfx("click")
+
+        save_state()
+        refresh_ui()
+
+    btn_approve_ref.on_click = lambda e: toggle_party_approval("ref")
+    btn_approve_red.on_click = lambda e: toggle_party_approval("red")
+    btn_approve_blue.on_click = lambda e: toggle_party_approval("blue")
+
     # --- LOGIKA ATURAN RESMI ORADO ---
     def toggle_sound(e):
         state["sound_on"] = not state.get("sound_on", True)
@@ -432,6 +544,24 @@ def main(page: ft.Page):
             },
         })
 
+    def get_approval_snapshot() -> dict:
+        ref_ok = bool(state.get("approve_referee", False))
+        red_ok = bool(state.get("approve_red", False))
+        blue_ok = bool(state.get("approve_blue", False))
+        all_ok = ref_ok and red_ok and blue_ok
+        return {
+            "all_approved": all_ok,
+            "ref_name": (state.get("referee_name") or "").strip() or "Wasit Pertandingan",
+            "ref_ok": ref_ok,
+            "ref_time": state.get("approve_referee_time", ""),
+            "red_name": (state.get("red_rep_name") or "").strip() or "Perwakilan Tim Merah",
+            "red_ok": red_ok,
+            "red_time": state.get("approve_red_time", ""),
+            "blue_name": (state.get("blue_rep_name") or "").strip() or "Perwakilan Tim Biru",
+            "blue_ok": blue_ok,
+            "blue_time": state.get("approve_blue_time", ""),
+        }
+
     # --- LOGIKA SIMPAN & ARSIP RIWAYAT PERTANDINGAN ---
     def archive_current_match(status_summary: str = "Disimpan Manual", sets_a_override: int | None = None, sets_b_override: int | None = None):
         sa = state["sets_a"] if sets_a_override is None else sets_a_override
@@ -448,6 +578,7 @@ def main(page: ft.Page):
             "score_b": state["score_b"],
             "set_num": state["set_num"],
             "status": status_summary,
+            "approvals": get_approval_snapshot(),
             "notes": list(state.get("referee_notes", [])),
             "logs": [
                 {
@@ -465,20 +596,70 @@ def main(page: ft.Page):
 
     def handle_manual_save_match(e):
         play_sfx("click")
+        appr = get_approval_snapshot()
+        sah_note = " • SAH (3/3 Setuju)" if appr["all_approved"] else ""
         archive_current_match(
-            status_summary=f"Disimpan di Set {state['set_num']} (Skor {state['score_a']}-{state['score_b']})"
+            status_summary=f"Set {state['set_num']} (Skor Set {state['sets_a']}-{state['sets_b']} | Poin {state['score_a']}-{state['score_b']}){sah_note}"
         )
         refresh_ui()
-        show_toast("Riwayat pertandingan berhasil disimpan ke Arsip!")
+        show_toast("Hasil pertandingan & persetujuan tersimpan ke Arsip!")
+
+    def start_fresh_match(e=None):
+        play_sfx("shake")
+        state["score_a"] = 0
+        state["score_b"] = 0
+        state["sets_a"] = 0
+        state["sets_b"] = 0
+        state["set_num"] = 1
+        state["round_num"] = 1
+        state["minor_a"] = 0
+        state["minor_b"] = 0
+        state["major_a"] = 0
+        state["major_b"] = 0
+        state["history"] = []
+        state["referee_notes"] = []
+        reset_approval_flags()
+        save_state()
+        refresh_ui()
+        show_toast("Papan skor & persetujuan direset untuk pertandingan baru.")
 
     def open_match_detail_dialog(match_item: dict):
+        appr = match_item.get("approvals") or {}
+        ref_line = (
+            f"DISETUJUI ({appr.get('ref_time', '-')})"
+            if appr.get("ref_ok")
+            else "Belum disetujui"
+        )
+        red_line = (
+            f"DISETUJUI ({appr.get('red_time', '-')})"
+            if appr.get("red_ok")
+            else "Belum disetujui"
+        )
+        blue_line = (
+            f"DISETUJUI ({appr.get('blue_time', '-')})"
+            if appr.get("blue_ok")
+            else "Belum disetujui"
+        )
+        pengesahan_status = (
+            "SAH & DISETUJUI SEMUA PIHAK (3/3)"
+            if appr.get("all_approved")
+            else "MENUNGGU PERSETUJUAN LENGKAP"
+        )
+
         lines = [
             f"ORADO DOMINO 101 ({match_item.get('format', 'BO3')})",
             f"Waktu: {match_item.get('timestamp', '-')}",
-            f"Pertandingan: {match_item.get('team_a')} vs {match_item.get('team_b')}",
-            f"Skor Set: {match_item.get('sets_a', 0)} - {match_item.get('sets_b', 0)}",
-            f"Skor Set Terakhir: {match_item.get('score_a', 0)} - {match_item.get('score_b', 0)}",
+            f"Tim Merah: {match_item.get('team_a')}",
+            f"Tim Biru: {match_item.get('team_b')}",
+            f"Skor Set Akhir: {match_item.get('sets_a', 0)} - {match_item.get('sets_b', 0)}",
+            f"Skor Poin Set Terakhir: {match_item.get('score_a', 0)} - {match_item.get('score_b', 0)}",
             f"Status: {match_item.get('status', '-')}",
+            "",
+            "--- PERSETUJUAN HASIL AKHIR ---",
+            f"• Wasit ({appr.get('ref_name', 'Wasit')}): {ref_line}",
+            f"• Tim Merah ({appr.get('red_name', 'Kapten Merah')}): {red_line}",
+            f"• Tim Biru ({appr.get('blue_name', 'Kapten Biru')}): {blue_line}",
+            f"Pengesahan: {pengesahan_status}",
             "",
             "--- CATATAN WASIT ---",
         ]
@@ -501,8 +682,8 @@ def main(page: ft.Page):
         rekap_field = ft.TextField(
             value=rekap_text,
             multiline=True,
-            min_lines=8,
-            max_lines=14,
+            min_lines=9,
+            max_lines=15,
             read_only=True,
             text_size=11,
             border_color=BORDER_COLOR,
@@ -521,7 +702,7 @@ def main(page: ft.Page):
                 tight=True,
                 spacing=8,
                 controls=[
-                    ft.Text("Tahan teks di bawah untuk menyalin rekap ke WhatsApp:", size=11, color=TEXT_MUTED),
+                    ft.Text("Tahan teks di bawah untuk menyalin berita acara ke WhatsApp:", size=11, color=TEXT_MUTED),
                     rekap_field,
                 ],
             ),
@@ -559,12 +740,15 @@ def main(page: ft.Page):
                             open_match_detail_dialog(item_data)
                         return _view
 
+                    appr_info = m.get("approvals") or {}
+                    sah_badge = " • ✅ SAH (3/3)" if appr_info.get("all_approved") else ""
+
                     archive_list_col.controls.append(
                         ft.Container(
                             padding=10,
                             border_radius=10,
                             bgcolor=BG_DARK,
-                            border=border_all(1, BORDER_COLOR),
+                            border=border_all(1, EMERALD if appr_info.get("all_approved") else BORDER_COLOR),
                             content=ft.Column(
                                 spacing=4,
                                 controls=[
@@ -587,7 +771,12 @@ def main(page: ft.Page):
                                         ],
                                     ),
                                     ft.Text(
-                                        f"{m.get('timestamp')} • {m.get('format')} • {m.get('status')}",
+                                        f"{m.get('timestamp')} • {m.get('format')}{sah_badge}",
+                                        size=11,
+                                        color=EMERALD if appr_info.get("all_approved") else TEXT_MUTED,
+                                    ),
+                                    ft.Text(
+                                        f"{m.get('status')}",
                                         size=11,
                                         color=TEXT_MUTED,
                                     ),
@@ -595,7 +784,7 @@ def main(page: ft.Page):
                                         alignment=ft.MainAxisAlignment.END,
                                         spacing=6,
                                         controls=[
-                                            ft.TextButton("Lihat Detail", on_click=make_view(m)),
+                                            ft.TextButton("Lihat Berita Acara", on_click=make_view(m)),
                                             ft.TextButton("Hapus", on_click=make_del(idx)),
                                         ],
                                     ),
@@ -687,6 +876,20 @@ def main(page: ft.Page):
         projected_sets_b = state["sets_b"] + (sets_earned if winner_code == "B" else 0)
         is_match_over = (projected_sets_a >= target_sets) or (projected_sets_b >= target_sets)
 
+        def go_to_approval_bottom(e):
+            play_sfx("click")
+            state["sets_a"] = projected_sets_a
+            state["sets_b"] = projected_sets_b
+            state["match_finished"] = True
+            save_state()
+            close_dialog(dlg)
+            refresh_ui()
+            try:
+                main_scroll_col.scroll_to(offset=-1, duration=450)
+            except Exception:
+                pass
+            show_toast("Silakan Wasit, Tim Merah & Tim Biru menyetujui hasil di bawah!")
+
         def proceed_next(e):
             play_sfx("click")
             state["sets_a"] = projected_sets_a
@@ -709,6 +912,7 @@ def main(page: ft.Page):
                 state["major_b"] = 0
                 state["history"] = []
                 state["referee_notes"] = []
+                reset_approval_flags()
                 show_toast(f"Match {winner_name} otomatis tersimpan ke Arsip!")
             else:
                 state["set_num"] += 1
@@ -738,6 +942,7 @@ def main(page: ft.Page):
             state["major_b"] = 0
             state["history"] = []
             state["referee_notes"] = []
+            reset_approval_flags()
             save_state()
             close_dialog(dlg)
             refresh_ui()
@@ -752,6 +957,18 @@ def main(page: ft.Page):
             "Bonus APOLLO Aktif (Lawan 0 poin) → Langsung +2 Set sekaligus!"
             if is_apollo
             else f"Perolehan Set: +{sets_earned} Set (Skor Set: {projected_sets_a} - {projected_sets_b})"
+        )
+
+        dialog_actions = (
+            [
+                ft.TextButton("Simpan & Baru", on_click=proceed_next),
+                make_button("Persetujuan Akhir ↓", EMERALD, BG_DARK, go_to_approval_bottom),
+            ]
+            if is_match_over
+            else [
+                ft.TextButton("Reset 0-0", on_click=reset_match_now),
+                make_button("Lanjut Set Berikutnya", GOLD, BG_DARK, proceed_next),
+            ]
         )
 
         dlg = ft.AlertDialog(
@@ -771,15 +988,7 @@ def main(page: ft.Page):
                     ft.Text(apollo_note, size=12, weight=ft.FontWeight.BOLD, color=PURPLE_SPECIAL if is_apollo else GOLD),
                 ],
             ),
-            actions=[
-                ft.TextButton("Reset 0-0", on_click=reset_match_now),
-                make_button(
-                    "Simpan & Match Baru" if is_match_over else "Lanjut Set Berikutnya",
-                    GOLD,
-                    BG_DARK,
-                    proceed_next,
-                ),
-            ],
+            actions=dialog_actions,
         )
         open_dialog(dlg)
 
@@ -1056,8 +1265,8 @@ def main(page: ft.Page):
 
     def open_settings_dialog(e):
         play_sfx("click")
-        tf_a = ft.TextField(label="Nama Tim A", value=state["team_a"], border_color=GOLD)
-        tf_b = ft.TextField(label="Nama Tim B", value=state["team_b"], border_color=GOLD)
+        tf_a = ft.TextField(label="Nama Tim Merah (Tim A)", value=state["team_a"], border_color=RED_ALERT)
+        tf_b = ft.TextField(label="Nama Tim Biru (Tim B)", value=state["team_b"], border_color=BLUE_TEAM)
         selected_fmt = [state["match_format"]]
 
         btn_bo3 = make_button(
@@ -1090,8 +1299,8 @@ def main(page: ft.Page):
         btn_bo5.on_click = lambda ev: pick_fmt("BO5")
 
         def save_settings(ev):
-            state["team_a"] = (tf_a.value or "TIM A").strip().upper()
-            state["team_b"] = (tf_b.value or "TIM B").strip().upper()
+            state["team_a"] = (tf_a.value or "TIM MERAH").strip().upper()
+            state["team_b"] = (tf_b.value or "TIM BIRU").strip().upper()
             state["match_format"] = selected_fmt[0]
             play_sfx("click")
             save_state()
@@ -1137,22 +1346,8 @@ def main(page: ft.Page):
             refresh_ui()
 
         def do_reset_match(ev):
-            state["score_a"] = 0
-            state["score_b"] = 0
-            state["sets_a"] = 0
-            state["sets_b"] = 0
-            state["set_num"] = 1
-            state["round_num"] = 1
-            state["minor_a"] = 0
-            state["minor_b"] = 0
-            state["major_a"] = 0
-            state["major_b"] = 0
-            state["history"] = []
-            state["referee_notes"] = []
-            play_sfx("shake")
-            save_state()
             close_dialog(rst_dlg)
-            refresh_ui()
+            start_fresh_match()
 
         rst_dlg = ft.AlertDialog(
             modal=True,
@@ -1179,6 +1374,7 @@ def main(page: ft.Page):
             horizontal_alignment=ft.CrossAxisAlignment.CENTER,
             spacing=3,
             controls=[
+                ft.Text("● TIM MERAH", size=10, weight=ft.FontWeight.BOLD, color=RED_ALERT),
                 team_a_name_text,
                 score_a_text,
                 status_a_text,
@@ -1198,6 +1394,7 @@ def main(page: ft.Page):
             horizontal_alignment=ft.CrossAxisAlignment.CENTER,
             spacing=3,
             controls=[
+                ft.Text("● TIM BIRU", size=10, weight=ft.FontWeight.BOLD, color=BLUE_TEAM),
                 team_b_name_text,
                 score_b_text,
                 status_b_text,
@@ -1334,6 +1531,65 @@ def main(page: ft.Page):
                 )
 
         archive_btn_label.value = f"📂 Arsip Riwayat Pertandingan ({len(saved_matches)} Tersimpan)"
+
+        # Render Panel Persetujuan Hasil Akhir Pertandingan
+        ref_name_field.value = state.get("referee_name", "")
+        red_rep_field.value = state.get("red_rep_name", "")
+        blue_rep_field.value = state.get("blue_rep_name", "")
+
+        red_team_label_text.value = f"● TIM MERAH ({state['team_a']})"
+        blue_team_label_text.value = f"● TIM BIRU ({state['team_b']})"
+
+        finish_tag = " [PERTANDINGAN SELESAI]" if state.get("match_finished") else ""
+        approval_summary_text.value = (
+            f"Hasil Akhir{finish_tag}: {state['team_a']} vs {state['team_b']} • "
+            f"Skor Set ({state['sets_a']} - {state['sets_b']}) • Poin Set ({state['score_a']} - {state['score_b']})"
+        )
+
+        ref_ok = bool(state.get("approve_referee", False))
+        red_ok = bool(state.get("approve_red", False))
+        blue_ok = bool(state.get("approve_blue", False))
+        approved_count = int(ref_ok) + int(red_ok) + int(blue_ok)
+
+        btn_approve_ref.text = "✓ Disetujui" if ref_ok else "Setujui"
+        btn_approve_ref.bgcolor = EMERALD if ref_ok else CARD_ACTIVE
+        btn_approve_ref.color = BG_DARK if ref_ok else TEXT_PRIMARY
+        ref_approve_subtext.value = (
+            f"Disahkan Wasit pukul {state.get('approve_referee_time', '-')}"
+            if ref_ok
+            else "Menunggu konfirmasi Wasit"
+        )
+        ref_approve_subtext.color = EMERALD if ref_ok else TEXT_MUTED
+
+        btn_approve_red.text = "✓ Disetujui" if red_ok else "Setujui"
+        btn_approve_red.bgcolor = EMERALD if red_ok else CARD_ACTIVE
+        btn_approve_red.color = BG_DARK if red_ok else TEXT_PRIMARY
+        red_approve_subtext.value = (
+            f"Disetujui Tim Merah pukul {state.get('approve_red_time', '-')}"
+            if red_ok
+            else "Menunggu persetujuan Tim Merah"
+        )
+        red_approve_subtext.color = EMERALD if red_ok else TEXT_MUTED
+
+        btn_approve_blue.text = "✓ Disetujui" if blue_ok else "Setujui"
+        btn_approve_blue.bgcolor = EMERALD if blue_ok else CARD_ACTIVE
+        btn_approve_blue.color = BG_DARK if blue_ok else TEXT_PRIMARY
+        blue_approve_subtext.value = (
+            f"Disetujui Tim Biru pukul {state.get('approve_blue_time', '-')}"
+            if blue_ok
+            else "Menunggu persetujuan Tim Biru"
+        )
+        blue_approve_subtext.color = EMERALD if blue_ok else TEXT_MUTED
+
+        if approved_count == 3:
+            approval_status_banner.value = "✅ SAH & DISETUJUI SEMUA PIHAK (Wasit, Tim Merah & Tim Biru)"
+            approval_status_banner.color = EMERALD
+            approval_panel.border = border_all(2, EMERALD)
+        else:
+            approval_status_banner.value = f"⏳ Status Pengesahan: {approved_count}/3 Pihak Menyetujui"
+            approval_status_banner.color = AMBER
+            approval_panel.border = border_all(1, GOLD if state.get("match_finished") else BORDER_COLOR)
+
         page.update()
 
     # --- TOMBOL AKSI CEPAT ---
@@ -1612,21 +1868,106 @@ def main(page: ft.Page):
         ),
     )
 
-    main_body = ft.Container(
-        padding=14,
+    # --- PANEL PALING BAWAH: PERSETUJUAN HASIL AKHIR PERTANDINGAN ---
+    def build_party_approval_box(title_widget: ft.Control, name_field: ft.TextField, approve_btn, sub_text: ft.Text):
+        return ft.Container(
+            padding=10,
+            border_radius=10,
+            bgcolor=BG_DARK,
+            border=border_all(1, BORDER_COLOR),
+            content=ft.Column(
+                spacing=6,
+                controls=[
+                    ft.Row(
+                        alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                        controls=[
+                            title_widget,
+                            sub_text,
+                        ],
+                    ),
+                    ft.Row(
+                        spacing=8,
+                        controls=[
+                            name_field,
+                            approve_btn,
+                        ],
+                    ),
+                ],
+            ),
+        )
+
+    approval_panel = ft.Container(
+        padding=12,
+        border_radius=14,
+        bgcolor=CARD_BG,
+        border=border_all(1, BORDER_COLOR),
         content=ft.Column(
-            spacing=10,
-            scroll=ft.ScrollMode.AUTO,
+            spacing=8,
             controls=[
-                header,
-                score_section,
-                input_panel,
-                penalty_panel,
-                special_panel,
-                referee_panel,
-                history_panel,
+                ft.Text("✍️ PERSETUJUAN HASIL AKHIR PERTANDINGAN", size=12, weight=ft.FontWeight.BOLD, color=GOLD),
+                approval_summary_text,
+                approval_status_banner,
+                build_party_approval_box(
+                    ft.Text("● WASIT PERTANDINGAN", size=12, weight=ft.FontWeight.BOLD, color=GOLD),
+                    ref_name_field,
+                    btn_approve_ref,
+                    ref_approve_subtext,
+                ),
+                build_party_approval_box(
+                    red_team_label_text,
+                    red_rep_field,
+                    btn_approve_red,
+                    red_approve_subtext,
+                ),
+                build_party_approval_box(
+                    blue_team_label_text,
+                    blue_rep_field,
+                    btn_approve_blue,
+                    blue_approve_subtext,
+                ),
+                ft.Row(
+                    spacing=8,
+                    controls=[
+                        make_button(
+                            "Sahkan & Simpan Arsip",
+                            EMERALD,
+                            BG_DARK,
+                            handle_manual_save_match,
+                            expand=True,
+                            height=42,
+                        ),
+                        make_button(
+                            "Match Baru (0-0)",
+                            CARD_ACTIVE,
+                            TEXT_PRIMARY,
+                            start_fresh_match,
+                            expand=True,
+                            height=42,
+                        ),
+                    ],
+                ),
             ],
         ),
+    )
+
+    main_scroll_col = ft.Column(
+        spacing=10,
+        scroll=ft.ScrollMode.AUTO,
+        controls=[
+            header,
+            score_section,
+            input_panel,
+            penalty_panel,
+            special_panel,
+            referee_panel,
+            history_panel,
+            approval_panel,
+        ],
+    )
+
+    main_body = ft.Container(
+        padding=14,
+        content=main_scroll_col,
     )
 
     page.add(ft.SafeArea(expand=True, content=main_body))
@@ -1638,4 +1979,3 @@ if __name__ == "__main__":
         ft.run(main, assets_dir="assets")
     else:
         ft.app(target=main, assets_dir="assets")
-        
