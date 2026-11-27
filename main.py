@@ -1,6 +1,9 @@
 import base64
+import math
 import os
+import struct
 import tempfile
+import wave
 import flet as ft
 
 try:
@@ -83,6 +86,70 @@ def extract_embedded_logo() -> str | None:
         return None
 
 
+# --- GENERATOR EFEK SUARA LOKAL (16-BIT PCM WAV UNTUK ANDROID) ---
+def _write_wav(filepath: str, samples: list[int], sample_rate: int = 44100):
+    if os.path.exists(filepath):
+        return
+    try:
+        with wave.open(filepath, "w") as wf:
+            wf.setnchannels(1)
+            wf.setsampwidth(2)
+            wf.setframerate(sample_rate)
+            raw = struct.pack(f"<{len(samples)}h", *[max(-32767, min(32767, s)) for s in samples])
+            wf.writeframes(raw)
+    except Exception:
+        pass
+
+
+def build_builtin_sfx() -> dict[str, str]:
+    sfx_dir = os.path.join(tempfile.gettempdir(), "orado_domino_sfx")
+    os.makedirs(sfx_dir, exist_ok=True)
+    sr = 44100
+
+    # 1. Ketukan batu domino (55 ms)
+    click_path = os.path.join(sfx_dir, "orado_click.wav")
+    click_len = int(sr * 0.055)
+    click_samples = []
+    for i in range(click_len):
+        t = i / sr
+        env = math.exp(-t * 85.0)
+        val = (math.sin(2 * math.pi * 920 * t) * 0.65 + math.sin(2 * math.pi * 2150 * t) * 0.35) * env
+        click_samples.append(int(val * 26000))
+    _write_wav(click_path, click_samples, sr)
+
+    # 2. Nada peringatan penalti / undo / reset (220 ms)
+    shake_path = os.path.join(sfx_dir, "orado_shake.wav")
+    shake_len = int(sr * 0.22)
+    shake_samples = []
+    for i in range(shake_len):
+        t = i / sr
+        pulse = 1.0 if (t < 0.085 or t > 0.115) else 0.15
+        env = math.exp(-t * 9.0) * pulse
+        freq = 210 if t < 0.10 else 165
+        val = (math.sin(2 * math.pi * freq * t) * 0.75 + math.sin(2 * math.pi * (freq * 2) * t) * 0.25) * env
+        shake_samples.append(int(val * 26000))
+    _write_wav(shake_path, shake_samples, sr)
+
+    # 3. Fanfare kemenangan / pembuka (480 ms)
+    win_path = os.path.join(sfx_dir, "orado_win.wav")
+    notes = [(523.25, 0.10), (659.25, 0.10), (783.99, 0.10), (1046.50, 0.18)]
+    win_samples = []
+    for freq, dur in notes:
+        n_len = int(sr * dur)
+        for i in range(n_len):
+            t = i / sr
+            env = math.exp(-t * 7.5)
+            val = (math.sin(2 * math.pi * freq * t) * 0.75 + math.sin(2 * math.pi * (freq * 1.5) * t) * 0.25) * env
+            win_samples.append(int(val * 25000))
+    _write_wav(win_path, win_samples, sr)
+
+    return {
+        "click": click_path,
+        "shake": shake_path,
+        "intro": win_path,
+    }
+
+
 def main(page: ft.Page):
     page.title = "ORADO Domino 101"
     page.bgcolor = BG_DARK
@@ -129,21 +196,25 @@ def main(page: ft.Page):
     load_state()
 
     # --- SISTEM AUDIO FLET 1.x (flet-audio) ---
+    builtin_sfx = build_builtin_sfx()
     audio_players = {}
     AudioClass = getattr(fta, "Audio", None) if fta else None
     ReleaseMode = getattr(fta, "ReleaseMode", None) if fta else None
 
     if AudioClass:
-        for sound_key, filename in [
+        for sound_key, asset_filename in [
             ("intro", "intro_mlbb.wav"),
             ("click", "ui_click.wav"),
             ("shake", "ui_shake.wav"),
         ]:
-            if os.path.exists(os.path.join("assets", filename)):
+            asset_disk_path = os.path.join("assets", asset_filename)
+            audio_src = asset_filename if os.path.exists(asset_disk_path) else builtin_sfx.get(sound_key, "")
+            if audio_src:
                 try:
                     kwargs = {
-                        "src": filename,
+                        "src": audio_src,
                         "autoplay": (sound_key == "intro" and state.get("sound_on", True)),
+                        "volume": 1.0,
                     }
                     if ReleaseMode and hasattr(ReleaseMode, "STOP"):
                         kwargs["release_mode"] = ReleaseMode.STOP
@@ -158,10 +229,6 @@ def main(page: ft.Page):
 
     async def _play_sound_async(player):
         try:
-            if hasattr(player, "seek"):
-                res_seek = player.seek(0)
-                if hasattr(res_seek, "__await__"):
-                    await res_seek
             res_play = player.play()
             if hasattr(res_play, "__await__"):
                 await res_play
@@ -328,7 +395,6 @@ def main(page: ft.Page):
         winner_score = state["score_a"] if winner_code == "A" else state["score_b"]
         loser_score = state["score_b"] if winner_code == "A" else state["score_a"]
 
-        # Pasal 12d: Apollo (2 Set sekaligus) jika menang >=101, lawan 0, bukan Ronde 1, bukan 7 Balak/1 Seri
         rounds_completed = len([h for h in state["history"] if "Ronde" in h["label"] or "Pass Palsu" in h["label"]])
         is_apollo = force_apollo or (
             allow_apollo
@@ -545,7 +611,6 @@ def main(page: ft.Page):
             refresh_ui()
 
     def trigger_apollo_win(e):
-        """Pasal 3h & 12d: Kemenangan Apollo (+2 Set sekaligus jika menang >=101 dan lawan 0 poin)."""
         team = state["selected_team"]
         team_name = state["team_a"] if team == "A" else state["team_b"]
         opp_score = state["score_b"] if team == "A" else state["score_a"]
@@ -584,7 +649,6 @@ def main(page: ft.Page):
         open_dialog(confirm_dlg)
 
     def trigger_seven_balak_win(e):
-        """Pasal 8e: 7 Balak / 1 Seri Lengkap -> Skor digenapkan jadi 101, menang Set, Apollo TIDAK berlaku."""
         team = state["selected_team"]
         team_name = state["team_a"] if team == "A" else state["team_b"]
 
@@ -617,7 +681,6 @@ def main(page: ft.Page):
         open_dialog(confirm_dlg)
 
     def trigger_false_pass_under_3(e):
-        """Pasal 10e.2: Pass Palsu sisa <=3 batu -> Lawan kalah Set; skor tim menang <51 jadi 101, jika >=51 ditambah +75."""
         winner_team = state["selected_team"]
         winner_name = state["team_a"] if winner_team == "A" else state["team_b"]
         loser_name = state["team_b"] if winner_team == "A" else state["team_a"]
@@ -678,6 +741,7 @@ def main(page: ft.Page):
         refresh_ui()
 
     def open_settings_dialog(e):
+        play_sfx("click")
         tf_a = ft.TextField(label="Nama Tim A", value=state["team_a"], border_color=GOLD)
         tf_b = ft.TextField(label="Nama Tim B", value=state["team_b"], border_color=GOLD)
         selected_fmt = [state["match_format"]]
@@ -700,6 +764,7 @@ def main(page: ft.Page):
         )
 
         def pick_fmt(fmt_code: str):
+            play_sfx("click")
             selected_fmt[0] = fmt_code
             btn_bo3.bgcolor = GOLD if fmt_code == "BO3" else CARD_ACTIVE
             btn_bo3.color = BG_DARK if fmt_code == "BO3" else TEXT_PRIMARY
@@ -741,6 +806,8 @@ def main(page: ft.Page):
         open_dialog(edit_dlg)
 
     def confirm_reset_round(e):
+        play_sfx("shake")
+
         def do_reset_set(ev):
             state["score_a"] = 0
             state["score_b"] = 0
@@ -826,7 +893,6 @@ def main(page: ft.Page):
 
     active_team_banner = ft.Text("", size=12, weight=ft.FontWeight.BOLD, color=GOLD)
 
-    # Tombol Mode Bonus Akhir Ronde (Pasal 12)
     btn_bonus_1x = make_button("1x Normal", EMERALD, BG_DARK, lambda e: set_bonus_mode("1x"), expand=True, height=36)
     btn_bonus_2x = make_button("2x Ujung/Beradu", CARD_ACTIVE, TEXT_PRIMARY, lambda e: set_bonus_mode("2x"), expand=True, height=36)
     btn_bonus_50 = make_button("+50 Balak Semp.", CARD_ACTIVE, TEXT_PRIMARY, lambda e: set_bonus_mode("+50"), expand=True, height=36)
@@ -1144,3 +1210,4 @@ if __name__ == "__main__":
         ft.run(main, assets_dir="assets")
     else:
         ft.app(target=main, assets_dir="assets")
+        
