@@ -28,6 +28,31 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
+          pip install gTTS
+
+      - name: Generate Indonesian Referee Voice Assets
+        run: |
+          mkdir -p assets
+          python - << 'EOF'
+          from gtts import gTTS
+
+          voices = {
+              "voice_ringan.mp3": "Pelanggaran ringan.",
+              "voice_penalti_11.mp3": "Penalti sebelas poin.",
+              "voice_penalti_25.mp3": "Penalti dua puluh lima poin.",
+              "voice_pass_palsu_50.mp3": "Pass palsu, penalti lima puluh poin.",
+              "voice_pass_palsu_kalah.mp3": "Pass palsu sisa tiga batu, lawan kalah set.",
+              "voice_apollo.mp3": "Apollo! Menang dua set sekaligus!",
+              "voice_7balak.mp3": "Tujuh balak! Sah seratus satu!",
+              "voice_2x.mp3": "Dua kali ujung sama.",
+              "voice_balak50.mp3": "Balak sempurna, tambah lima puluh.",
+          }
+
+          for filename, text in voices.items():
+              tts = gTTS(text=text, lang="id", slow=False)
+              tts.save(f"assets/{filename}")
+              print(f"Generated assets/{filename}")
+          EOF
 
       - name: Build Android APK (arm64-v8a only)
         env:
