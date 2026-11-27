@@ -62,8 +62,10 @@ jobs:
               "voice_7balak.mp3": "Tujuh balak! Sah seratus satu!",
               "voice_2x.mp3": "Dua kali ujung sama.",
               "voice_balak50.mp3": "Balak sempurna, tambah lima puluh.",
-              "voice_beradu.mp3": "Batu beradu, hitung sisa mata.",
-              "voice_beradu_seri.mp3": "Batu beradu seri, nol poin.",
+              "voice_beradu.mp3": "Batu beradu, hitung semua sisa mata.",
+              "voice_beradu_menang.mp3": "Batu beradu menang, tambah semua sisa mata.",
+              "voice_beradu_kalah.mp3": "Batu beradu kalah, semua sisa mata dikali dua untuk lawan.",
+              "voice_beradu_seri.mp3": "Batu beradu seri, semua sisa mata untuk lawan.",
           }
 
           for filename, text in voices.items():
