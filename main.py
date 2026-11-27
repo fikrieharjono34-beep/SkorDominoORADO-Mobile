@@ -26,7 +26,7 @@ TEXT_PRIMARY = "#F8FAFC"
 TEXT_MUTED = "#94A3B8"
 
 
-# --- HELPER KOMPATIBILITAS LINTAS VERSI FLET (0.2x & 1.x) ---
+# --- HELPER KOMPATIBILITAS LINTAS VERSI FLET ---
 def get_icon(name: str):
     icons_mod = getattr(ft, "Icons", None) or getattr(ft, "icons", None)
     return getattr(icons_mod, name, None) if icons_mod else None
@@ -83,8 +83,7 @@ def main(page: ft.Page):
     page.title = "ORADO Domino 101"
     page.bgcolor = BG_DARK
     page.theme_mode = ft.ThemeMode.DARK
-    page.padding = 14
-    page.scroll = ft.ScrollMode.AUTO
+    page.padding = 0
 
     # --- STATE PERTANDINGAN ---
     state = {
@@ -116,49 +115,6 @@ def main(page: ft.Page):
             pass
 
     load_state()
-
-    # --- AUDIO & HAPTIC ANDROID SAFE ---
-    AudioClass = getattr(ft, "Audio", None)
-    HapticClass = getattr(ft, "HapticFeedback", None)
-
-    haptic = None
-    if HapticClass:
-        try:
-            haptic = HapticClass()
-            page.overlay.append(haptic)
-        except Exception:
-            haptic = None
-
-    audio_players = {}
-    for sound_key, filename in [
-        ("intro", "intro_mlbb.wav"),
-        ("click", "ui_click.wav"),
-        ("shake", "ui_shake.wav"),
-    ]:
-        asset_file = os.path.join("assets", filename)
-        if AudioClass and os.path.exists(asset_file):
-            try:
-                player = AudioClass(src=filename, autoplay=(sound_key == "intro"))
-                page.overlay.append(player)
-                audio_players[sound_key] = player
-            except Exception:
-                pass
-
-    def trigger_feedback(kind: str = "click"):
-        try:
-            if kind in audio_players:
-                audio_players[kind].play()
-        except Exception:
-            pass
-
-        try:
-            if haptic:
-                if kind in ("shake", "intro"):
-                    haptic.heavy_impact()
-                else:
-                    haptic.light_impact()
-        except Exception:
-            pass
 
     # --- HELPER DIALOG LINTAS VERSI FLET ---
     def open_dialog(dlg: ft.AlertDialog):
@@ -192,15 +148,15 @@ def main(page: ft.Page):
     # --- KOMPONEN LOGO HEADER ---
     embedded_logo_path = extract_embedded_logo()
     if embedded_logo_path:
-        logo_widget = ft.Image(src=embedded_logo_path, width=42, height=42)
+        logo_widget = ft.Image(src=embedded_logo_path, width=40, height=40)
     elif os.path.exists(os.path.join("assets", "logo_orado_ok.png")):
-        logo_widget = ft.Image(src="logo_orado_ok.png", width=42, height=42)
+        logo_widget = ft.Image(src="logo_orado_ok.png", width=40, height=40)
     else:
         logo_widget = ft.Container(
-            content=ft.Text("OR", weight=ft.FontWeight.BOLD, size=16, color=BG_DARK),
+            content=ft.Text("OR", weight=ft.FontWeight.BOLD, size=15, color=BG_DARK),
             bgcolor=GOLD,
-            width=40,
-            height=40,
+            width=38,
+            height=38,
             border_radius=10,
             alignment=align_center(),
         )
@@ -213,11 +169,11 @@ def main(page: ft.Page):
         color=GOLD,
     )
 
-    team_a_name_text = ft.Text(state["team_a"], size=16, weight=ft.FontWeight.BOLD, color=TEXT_PRIMARY)
-    team_b_name_text = ft.Text(state["team_b"], size=16, weight=ft.FontWeight.BOLD, color=TEXT_PRIMARY)
+    team_a_name_text = ft.Text(state["team_a"], size=15, weight=ft.FontWeight.BOLD, color=TEXT_PRIMARY)
+    team_b_name_text = ft.Text(state["team_b"], size=15, weight=ft.FontWeight.BOLD, color=TEXT_PRIMARY)
 
-    score_a_text = ft.Text(str(state["score_a"]), size=46, weight=ft.FontWeight.W_900, color=TEXT_PRIMARY)
-    score_b_text = ft.Text(str(state["score_b"]), size=46, weight=ft.FontWeight.W_900, color=TEXT_PRIMARY)
+    score_a_text = ft.Text(str(state["score_a"]), size=44, weight=ft.FontWeight.W_900, color=TEXT_PRIMARY)
+    score_b_text = ft.Text(str(state["score_b"]), size=44, weight=ft.FontWeight.W_900, color=TEXT_PRIMARY)
 
     status_a_text = ft.Text("", size=11, weight=ft.FontWeight.W_600, color=TEXT_MUTED)
     status_b_text = ft.Text("", size=11, weight=ft.FontWeight.W_600, color=TEXT_MUTED)
@@ -247,12 +203,10 @@ def main(page: ft.Page):
 
     def select_team(team_code: str):
         state["selected_team"] = team_code
-        trigger_feedback("click")
         save_state()
         refresh_ui()
 
     def show_winner_modal(winner_code: str, win_reason: str):
-        trigger_feedback("intro")
         winner_name = state["team_a"] if winner_code == "A" else state["team_b"]
         loser_name = state["team_b"] if winner_code == "A" else state["team_a"]
         winner_score = state["score_a"] if winner_code == "A" else state["score_b"]
@@ -305,7 +259,7 @@ def main(page: ft.Page):
         )
         open_dialog(dlg)
 
-    def add_points(points: int, label: str = "Skor Ronde", is_penalty: bool = False):
+    def add_points(points: int, label: str = "Skor Ronde"):
         if points <= 0:
             return
         team = state["selected_team"]
@@ -320,7 +274,6 @@ def main(page: ft.Page):
             "label": label,
         })
 
-        trigger_feedback("shake" if is_penalty else "click")
         save_state()
         refresh_ui()
 
@@ -367,7 +320,6 @@ def main(page: ft.Page):
             state["score_a"] = max(0, state["score_a"] - last["points"])
         else:
             state["score_b"] = max(0, state["score_b"] - last["points"])
-        trigger_feedback("shake")
         save_state()
         refresh_ui()
 
@@ -399,7 +351,6 @@ def main(page: ft.Page):
             state["score_a"] = 0
             state["score_b"] = 0
             state["history"] = []
-            trigger_feedback("shake")
             save_state()
             close_dialog(rst_dlg)
             refresh_ui()
@@ -419,7 +370,7 @@ def main(page: ft.Page):
     # --- KARTU SKOR TIM ---
     team_a_card = ft.Container(
         expand=True,
-        padding=14,
+        padding=12,
         border_radius=14,
         bgcolor=CARD_ACTIVE,
         border=border_all(2, GOLD),
@@ -437,7 +388,7 @@ def main(page: ft.Page):
 
     team_b_card = ft.Container(
         expand=True,
-        padding=14,
+        padding=12,
         border_radius=14,
         bgcolor=CARD_BG,
         border=border_all(1, BORDER_COLOR),
@@ -454,8 +405,8 @@ def main(page: ft.Page):
     )
 
     active_team_banner = ft.Text(
-        f"Target Input: {state['team_a']}",
-        size=13,
+        f"Input Aktif untuk: {state['team_a']}",
+        size=12,
         weight=ft.FontWeight.BOLD,
         color=GOLD,
     )
@@ -481,7 +432,7 @@ def main(page: ft.Page):
         team_b_card.border = border_all(2, GOLD if not is_a else BORDER_COLOR)
 
         active_name = state["team_a"] if is_a else state["team_b"]
-        active_team_banner.value = f"Input Aktif untuk: {active_name} (Ketuk kartu skor untuk ganti tim)"
+        active_team_banner.value = f"Input Aktif: {active_name} (Ketuk kartu skor untuk ganti)"
 
         history_column.controls.clear()
         if not state["history"]:
@@ -549,7 +500,7 @@ def main(page: ft.Page):
             f"+{p}",
             "#3B181E",
             RED_ALERT,
-            lambda e, v=p: add_points(v, f"PENALTI (+{v})", is_penalty=True),
+            lambda e, v=p: add_points(v, f"PENALTI (+{v})"),
             expand=True,
             height=44,
         )
@@ -567,14 +518,14 @@ def main(page: ft.Page):
                     ft.Column(
                         spacing=1,
                         controls=[
-                            ft.Text("ORADO DOMINO 101", size=16, weight=ft.FontWeight.BOLD, color=TEXT_PRIMARY),
+                            ft.Text("ORADO DOMINO 101", size=15, weight=ft.FontWeight.BOLD, color=TEXT_PRIMARY),
                             set_badge_text,
                         ],
                     ),
                 ],
             ),
             ft.Row(
-                spacing=4,
+                spacing=2,
                 controls=[
                     ft.IconButton(
                         icon=get_icon("EDIT"),
@@ -689,15 +640,23 @@ def main(page: ft.Page):
         ),
     )
 
-    page.add(
-        header,
-        score_section,
-        input_panel,
-        penalty_panel,
-        special_panel,
-        history_panel,
+    main_body = ft.Container(
+        padding=14,
+        content=ft.Column(
+            spacing=12,
+            scroll=ft.ScrollMode.AUTO,
+            controls=[
+                header,
+                score_section,
+                input_panel,
+                penalty_panel,
+                special_panel,
+                history_panel,
+            ],
+        ),
     )
 
+    page.add(ft.SafeArea(expand=True, content=main_body))
     refresh_ui()
 
 
