@@ -46,6 +46,8 @@ jobs:
               "voice_7balak.mp3": "Tujuh balak! Sah seratus satu!",
               "voice_2x.mp3": "Dua kali ujung sama.",
               "voice_balak50.mp3": "Balak sempurna, tambah lima puluh.",
+              "voice_beradu.mp3": "Batu beradu, hitung sisa mata.",
+              "voice_beradu_seri.mp3": "Batu beradu seri, nol poin.",
           }
 
           for filename, text in voices.items():
