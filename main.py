@@ -12,7 +12,7 @@ TARGET_SKOR = 101
 PENALTY_VALUES = [11, 15, 20, 25]
 QUICK_SCORES = [5, 10, 15, 20, 25, 30]
 
-# Palet warna Dark Emerald & Gold (Hex langsung agar aman di semua versi Flet)
+# Palet warna Dark Emerald & Gold
 BG_DARK = "#0B0F14"
 CARD_BG = "#151C24"
 CARD_ACTIVE = "#1C2632"
@@ -26,14 +26,45 @@ TEXT_PRIMARY = "#F8FAFC"
 TEXT_MUTED = "#94A3B8"
 
 
+# --- HELPER KOMPATIBILITAS LINTAS VERSI FLET (0.2x & 1.x) ---
 def get_icon(name: str):
-    """Ambil ikon secara aman untuk Flet versi lama maupun terbaru."""
     icons_mod = getattr(ft, "Icons", None) or getattr(ft, "icons", None)
     return getattr(icons_mod, name, None) if icons_mod else None
 
 
+def border_all(width: float, color: str):
+    border_mod = getattr(ft, "Border", None) or getattr(ft, "border", None)
+    return border_mod.all(width, color) if border_mod else None
+
+
+def pad_sym(horizontal: float, vertical: float):
+    padding_mod = getattr(ft, "Padding", None) or getattr(ft, "padding", None)
+    return padding_mod.symmetric(horizontal=horizontal, vertical=vertical) if padding_mod else None
+
+
+def align_center():
+    align_mod = getattr(ft, "Alignment", None) or getattr(ft, "alignment", None)
+    if align_mod and hasattr(align_mod, "CENTER"):
+        return align_mod.CENTER
+    if align_mod and hasattr(align_mod, "center"):
+        return align_mod.center
+    return None
+
+
+def make_button(label: str, bgcolor: str, color: str, on_click, expand: bool = False, height: float = 44):
+    btn_cls = getattr(ft, "Button", None) or getattr(ft, "ElevatedButton", None)
+    return btn_cls(
+        label,
+        bgcolor=bgcolor,
+        color=color,
+        expand=expand,
+        height=height,
+        style=ft.ButtonStyle(shape=ft.RoundedRectangleBorder(radius=10)),
+        on_click=on_click,
+    )
+
+
 def extract_embedded_logo() -> str | None:
-    """Ekstrak logo dari ASSETS_B64 ke file sementara jika tersedia."""
     b64_data = ASSETS_B64.get("logo_orado_ok.png", "").strip()
     if not b64_data:
         return None
@@ -65,7 +96,7 @@ def main(page: ft.Page):
         "sets_b": 0,
         "set_num": 1,
         "selected_team": "A",
-        "history": [],  # list of dict: {"team": "A"/"B", "points": int, "label": str}
+        "history": [],
     }
 
     STORAGE_KEY = "orado_domino_101_state_v1"
@@ -90,9 +121,13 @@ def main(page: ft.Page):
     AudioClass = getattr(ft, "Audio", None)
     HapticClass = getattr(ft, "HapticFeedback", None)
 
-    haptic = HapticClass() if HapticClass else None
-    if haptic:
-        page.overlay.append(haptic)
+    haptic = None
+    if HapticClass:
+        try:
+            haptic = HapticClass()
+            page.overlay.append(haptic)
+        except Exception:
+            haptic = None
 
     audio_players = {}
     for sound_key, filename in [
@@ -128,7 +163,14 @@ def main(page: ft.Page):
     # --- HELPER DIALOG LINTAS VERSI FLET ---
     def open_dialog(dlg: ft.AlertDialog):
         try:
-            page.open(dlg)
+            if hasattr(page, "show_dialog"):
+                page.show_dialog(dlg)
+            elif hasattr(page, "open"):
+                page.open(dlg)
+            else:
+                page.dialog = dlg
+                dlg.open = True
+                page.update()
         except Exception:
             page.dialog = dlg
             dlg.open = True
@@ -136,7 +178,13 @@ def main(page: ft.Page):
 
     def close_dialog(dlg: ft.AlertDialog):
         try:
-            page.close(dlg)
+            if hasattr(page, "pop_dialog"):
+                page.pop_dialog()
+            elif hasattr(page, "close"):
+                page.close(dlg)
+            else:
+                dlg.open = False
+                page.update()
         except Exception:
             dlg.open = False
             page.update()
@@ -144,9 +192,9 @@ def main(page: ft.Page):
     # --- KOMPONEN LOGO HEADER ---
     embedded_logo_path = extract_embedded_logo()
     if embedded_logo_path:
-        logo_widget = ft.Image(src=embedded_logo_path, width=42, height=42, fit=ft.ImageFit.CONTAIN)
+        logo_widget = ft.Image(src=embedded_logo_path, width=42, height=42)
     elif os.path.exists(os.path.join("assets", "logo_orado_ok.png")):
-        logo_widget = ft.Image(src="logo_orado_ok.png", width=42, height=42, fit=ft.ImageFit.CONTAIN)
+        logo_widget = ft.Image(src="logo_orado_ok.png", width=42, height=42)
     else:
         logo_widget = ft.Container(
             content=ft.Text("OR", weight=ft.FontWeight.BOLD, size=16, color=BG_DARK),
@@ -154,7 +202,7 @@ def main(page: ft.Page):
             width=40,
             height=40,
             border_radius=10,
-            alignment=ft.alignment.center,
+            alignment=align_center(),
         )
 
     # --- UI WIDGETS DINAMIS ---
@@ -182,7 +230,7 @@ def main(page: ft.Page):
         border_color=BORDER_COLOR,
         focused_border_color=GOLD,
         height=48,
-        content_padding=ft.padding.symmetric(horizontal=12, vertical=8),
+        content_padding=pad_sym(12, 8),
         expand=True,
     )
 
@@ -252,12 +300,7 @@ def main(page: ft.Page):
             ),
             actions=[
                 ft.TextButton("Reset Match", on_click=reset_all),
-                ft.ElevatedButton(
-                    "Lanjut Set Berikutnya",
-                    bgcolor=GOLD,
-                    color=BG_DARK,
-                    on_click=next_set,
-                ),
+                make_button("Lanjut Set Berikutnya", GOLD, BG_DARK, next_set),
             ],
         )
         open_dialog(dlg)
@@ -311,12 +354,7 @@ def main(page: ft.Page):
             ),
             actions=[
                 ft.TextButton("Batal", on_click=lambda e: close_dialog(confirm_dlg)),
-                ft.ElevatedButton(
-                    f"Ya, {special_type}!",
-                    bgcolor=PURPLE_SPECIAL,
-                    color=TEXT_PRIMARY,
-                    on_click=confirm_special,
-                ),
+                make_button(f"Ya, {special_type}!", PURPLE_SPECIAL, TEXT_PRIMARY, confirm_special),
             ],
         )
         open_dialog(confirm_dlg)
@@ -351,7 +389,7 @@ def main(page: ft.Page):
             content=ft.Column(tight=True, spacing=10, controls=[tf_a, tf_b]),
             actions=[
                 ft.TextButton("Batal", on_click=lambda ev: close_dialog(edit_dlg)),
-                ft.ElevatedButton("Simpan", bgcolor=GOLD, color=BG_DARK, on_click=save_names),
+                make_button("Simpan", GOLD, BG_DARK, save_names),
             ],
         )
         open_dialog(edit_dlg)
@@ -373,7 +411,7 @@ def main(page: ft.Page):
             content=ft.Text("Skor kedua tim pada set berjalan akan dikembalikan ke 0.", color=TEXT_PRIMARY),
             actions=[
                 ft.TextButton("Batal", on_click=lambda ev: close_dialog(rst_dlg)),
-                ft.ElevatedButton("Reset 0 - 0", bgcolor=RED_ALERT, color=TEXT_PRIMARY, on_click=do_reset),
+                make_button("Reset 0 - 0", RED_ALERT, TEXT_PRIMARY, do_reset),
             ],
         )
         open_dialog(rst_dlg)
@@ -384,7 +422,7 @@ def main(page: ft.Page):
         padding=14,
         border_radius=14,
         bgcolor=CARD_ACTIVE,
-        border=ft.border.all(2, GOLD),
+        border=border_all(2, GOLD),
         on_click=lambda e: select_team("A"),
         content=ft.Column(
             horizontal_alignment=ft.CrossAxisAlignment.CENTER,
@@ -402,7 +440,7 @@ def main(page: ft.Page):
         padding=14,
         border_radius=14,
         bgcolor=CARD_BG,
-        border=ft.border.all(1, BORDER_COLOR),
+        border=border_all(1, BORDER_COLOR),
         on_click=lambda e: select_team("B"),
         content=ft.Column(
             horizontal_alignment=ft.CrossAxisAlignment.CENTER,
@@ -438,14 +476,13 @@ def main(page: ft.Page):
 
         is_a = state["selected_team"] == "A"
         team_a_card.bgcolor = CARD_ACTIVE if is_a else CARD_BG
-        team_a_card.border = ft.border.all(2, GOLD if is_a else BORDER_COLOR)
+        team_a_card.border = border_all(2, GOLD if is_a else BORDER_COLOR)
         team_b_card.bgcolor = CARD_ACTIVE if not is_a else CARD_BG
-        team_b_card.border = ft.border.all(2, GOLD if not is_a else BORDER_COLOR)
+        team_b_card.border = border_all(2, GOLD if not is_a else BORDER_COLOR)
 
         active_name = state["team_a"] if is_a else state["team_b"]
         active_team_banner.value = f"Input Aktif untuk: {active_name} (Ketuk kartu skor untuk ganti tim)"
 
-        # Bangun ulang daftar riwayat (terbaru di atas)
         history_column.controls.clear()
         if not state["history"]:
             history_column.controls.append(
@@ -462,10 +499,10 @@ def main(page: ft.Page):
                 )
                 history_column.controls.append(
                     ft.Container(
-                        padding=ft.padding.symmetric(horizontal=10, vertical=8),
+                        padding=pad_sym(10, 8),
                         border_radius=8,
                         bgcolor=BG_DARK,
-                        border=ft.border.all(1, BORDER_COLOR),
+                        border=border_all(1, BORDER_COLOR),
                         content=ft.Row(
                             alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
                             controls=[
@@ -496,27 +533,25 @@ def main(page: ft.Page):
             add_points(val, "Skor Ronde")
 
     quick_buttons = [
-        ft.ElevatedButton(
-            text=f"+{val}",
-            bgcolor=CARD_ACTIVE,
-            color=TEXT_PRIMARY,
+        make_button(
+            f"+{val}",
+            CARD_ACTIVE,
+            TEXT_PRIMARY,
+            lambda e, v=val: add_points(v, "Skor Cepat"),
             expand=True,
             height=44,
-            style=ft.ButtonStyle(shape=ft.RoundedRectangleBorder(radius=10)),
-            on_click=lambda e, v=val: add_points(v, "Skor Cepat"),
         )
         for val in QUICK_SCORES
     ]
 
     penalty_buttons = [
-        ft.ElevatedButton(
-            text=f"+{p}",
-            bgcolor="#3B181E",
-            color=RED_ALERT,
+        make_button(
+            f"+{p}",
+            "#3B181E",
+            RED_ALERT,
+            lambda e, v=p: add_points(v, f"PENALTI (+{v})", is_penalty=True),
             expand=True,
             height=44,
-            style=ft.ButtonStyle(shape=ft.RoundedRectangleBorder(radius=10)),
-            on_click=lambda e, v=p: add_points(v, f"PENALTI (+{v})", is_penalty=True),
         )
         for p in PENALTY_VALUES
     ]
@@ -564,7 +599,7 @@ def main(page: ft.Page):
         padding=12,
         border_radius=14,
         bgcolor=CARD_BG,
-        border=ft.border.all(1, BORDER_COLOR),
+        border=border_all(1, BORDER_COLOR),
         content=ft.Column(
             spacing=10,
             controls=[
@@ -575,14 +610,7 @@ def main(page: ft.Page):
                     spacing=8,
                     controls=[
                         manual_score_input,
-                        ft.ElevatedButton(
-                            "TAMBAH",
-                            bgcolor=EMERALD,
-                            color=BG_DARK,
-                            height=48,
-                            style=ft.ButtonStyle(shape=ft.RoundedRectangleBorder(radius=10)),
-                            on_click=handle_manual_submit,
-                        ),
+                        make_button("TAMBAH", EMERALD, BG_DARK, handle_manual_submit, height=48),
                     ],
                 ),
             ],
@@ -593,7 +621,7 @@ def main(page: ft.Page):
         padding=12,
         border_radius=14,
         bgcolor=CARD_BG,
-        border=ft.border.all(1, BORDER_COLOR),
+        border=border_all(1, BORDER_COLOR),
         content=ft.Column(
             spacing=8,
             controls=[
@@ -607,7 +635,7 @@ def main(page: ft.Page):
         padding=12,
         border_radius=14,
         bgcolor=CARD_BG,
-        border=ft.border.all(1, BORDER_COLOR),
+        border=border_all(1, BORDER_COLOR),
         content=ft.Column(
             spacing=8,
             controls=[
@@ -615,23 +643,21 @@ def main(page: ft.Page):
                 ft.Row(
                     spacing=8,
                     controls=[
-                        ft.ElevatedButton(
+                        make_button(
                             "🏆 APOLLO",
-                            bgcolor=PURPLE_SPECIAL,
-                            color=TEXT_PRIMARY,
+                            PURPLE_SPECIAL,
+                            TEXT_PRIMARY,
+                            lambda e: trigger_special_win("APOLLO"),
                             expand=True,
                             height=44,
-                            style=ft.ButtonStyle(shape=ft.RoundedRectangleBorder(radius=10)),
-                            on_click=lambda e: trigger_special_win("APOLLO"),
                         ),
-                        ft.ElevatedButton(
+                        make_button(
                             "🀄 7 BALAK",
-                            bgcolor=GOLD,
-                            color=BG_DARK,
+                            GOLD,
+                            BG_DARK,
+                            lambda e: trigger_special_win("7 BALAK"),
                             expand=True,
                             height=44,
-                            style=ft.ButtonStyle(shape=ft.RoundedRectangleBorder(radius=10)),
-                            on_click=lambda e: trigger_special_win("7 BALAK"),
                         ),
                     ],
                 ),
@@ -643,11 +669,40 @@ def main(page: ft.Page):
         padding=12,
         border_radius=14,
         bgcolor=CARD_BG,
-        border=ft.border.all(1, BORDER_COLOR),
+        border=border_all(1, BORDER_COLOR),
         content=ft.Column(
             spacing=8,
             controls=[
                 ft.Row(
                     alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
                     controls=[
-                        ft.Text("RIWAYAT RONDE", size=12, weight=ft
+                        ft.Text("RIWAYAT RONDE", size=12, weight=ft.FontWeight.BOLD, color=TEXT_PRIMARY),
+                        ft.TextButton(
+                            "Undo Terakhir",
+                            icon=get_icon("UNDO"),
+                            on_click=undo_last,
+                        ),
+                    ],
+                ),
+                history_column,
+            ],
+        ),
+    )
+
+    page.add(
+        header,
+        score_section,
+        input_panel,
+        penalty_panel,
+        special_panel,
+        history_panel,
+    )
+
+    refresh_ui()
+
+
+if __name__ == "__main__":
+    if hasattr(ft, "run"):
+        ft.run(main, assets_dir="assets")
+    else:
+        ft.app(target=main, assets_dir="assets")
