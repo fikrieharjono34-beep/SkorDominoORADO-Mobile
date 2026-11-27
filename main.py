@@ -3,6 +3,11 @@ import os
 import tempfile
 import flet as ft
 
+try:
+    import flet_audio as fta
+except ImportError:
+    fta = None
+
 # Opsional: Tempel string Base64 logo_orado_ok.png di sini jika tidak memakai folder assets/
 ASSETS_B64 = {
     "logo_orado_ok.png": "",
@@ -101,6 +106,7 @@ def main(page: ft.Page):
         "major_b": 0,
         "selected_team": "A",
         "bonus_mode": "1x",  # "1x", "2x", "+50"
+        "sound_on": True,
         "history": [],
     }
 
@@ -121,6 +127,60 @@ def main(page: ft.Page):
             pass
 
     load_state()
+
+    # --- SISTEM AUDIO FLET 1.x (flet-audio) ---
+    audio_players = {}
+    AudioClass = getattr(fta, "Audio", None) if fta else None
+    ReleaseMode = getattr(fta, "ReleaseMode", None) if fta else None
+
+    if AudioClass:
+        for sound_key, filename in [
+            ("intro", "intro_mlbb.wav"),
+            ("click", "ui_click.wav"),
+            ("shake", "ui_shake.wav"),
+        ]:
+            if os.path.exists(os.path.join("assets", filename)):
+                try:
+                    kwargs = {
+                        "src": filename,
+                        "autoplay": (sound_key == "intro" and state.get("sound_on", True)),
+                    }
+                    if ReleaseMode and hasattr(ReleaseMode, "STOP"):
+                        kwargs["release_mode"] = ReleaseMode.STOP
+                    player = AudioClass(**kwargs)
+                    if hasattr(page, "services"):
+                        page.services.append(player)
+                    else:
+                        page.overlay.append(player)
+                    audio_players[sound_key] = player
+                except Exception:
+                    pass
+
+    async def _play_sound_async(player):
+        try:
+            if hasattr(player, "seek"):
+                res_seek = player.seek(0)
+                if hasattr(res_seek, "__await__"):
+                    await res_seek
+            res_play = player.play()
+            if hasattr(res_play, "__await__"):
+                await res_play
+        except Exception:
+            pass
+
+    def play_sfx(kind: str = "click"):
+        if not state.get("sound_on", True):
+            return
+        player = audio_players.get(kind) or audio_players.get("click")
+        if not player:
+            return
+        try:
+            if hasattr(page, "run_task"):
+                page.run_task(_play_sound_async, player)
+            else:
+                player.play()
+        except Exception:
+            pass
 
     # --- HELPER DIALOG LINTAS VERSI FLET ---
     def open_dialog(dlg: ft.AlertDialog):
@@ -154,22 +214,22 @@ def main(page: ft.Page):
     # --- KOMPONEN LOGO HEADER ---
     embedded_logo_path = extract_embedded_logo()
     if embedded_logo_path:
-        logo_widget = ft.Image(src=embedded_logo_path, width=40, height=40)
+        logo_widget = ft.Image(src=embedded_logo_path, width=38, height=38)
     elif os.path.exists(os.path.join("assets", "logo_orado_ok.png")):
-        logo_widget = ft.Image(src="logo_orado_ok.png", width=40, height=40)
+        logo_widget = ft.Image(src="logo_orado_ok.png", width=38, height=38)
     else:
         logo_widget = ft.Container(
-            content=ft.Text("OR", weight=ft.FontWeight.BOLD, size=15, color=BG_DARK),
+            content=ft.Text("OR", weight=ft.FontWeight.BOLD, size=14, color=BG_DARK),
             bgcolor=GOLD,
-            width=38,
-            height=38,
+            width=36,
+            height=36,
             border_radius=10,
             alignment=align_center(),
         )
 
     # --- UI WIDGETS DINAMIS ---
     set_badge_text = ft.Text("", size=11, weight=ft.FontWeight.BOLD, color=GOLD)
-    round_balak_text = ft.Text("", size=12, weight=ft.FontWeight.BOLD, color=EMERALD)
+    round_balak_text = ft.Text("", size=11, weight=ft.FontWeight.BOLD, color=EMERALD)
 
     team_a_name_text = ft.Text(state["team_a"], size=15, weight=ft.FontWeight.BOLD, color=TEXT_PRIMARY)
     team_b_name_text = ft.Text(state["team_b"], size=15, weight=ft.FontWeight.BOLD, color=TEXT_PRIMARY)
@@ -182,6 +242,13 @@ def main(page: ft.Page):
 
     foul_a_text = ft.Text("", size=10, weight=ft.FontWeight.W_600, color=AMBER)
     foul_b_text = ft.Text("", size=10, weight=ft.FontWeight.W_600, color=AMBER)
+
+    sound_btn = ft.IconButton(
+        icon=get_icon("VOLUME_UP" if state.get("sound_on", True) else "VOLUME_OFF"),
+        tooltip="Suara On/Off",
+        icon_color=EMERALD if state.get("sound_on", True) else TEXT_MUTED,
+        on_click=None,
+    )
 
     manual_score_input = ft.TextField(
         label="Poin Sisa Batu",
@@ -198,6 +265,15 @@ def main(page: ft.Page):
     history_column = ft.Column(spacing=6)
 
     # --- LOGIKA ATURAN RESMI ORADO ---
+    def toggle_sound(e):
+        state["sound_on"] = not state.get("sound_on", True)
+        save_state()
+        if state["sound_on"]:
+            play_sfx("click")
+        refresh_ui()
+
+    sound_btn.on_click = toggle_sound
+
     def get_opening_balak(round_num: int) -> str:
         idx = (max(1, round_num) - 1) % 7
         return f"Balak {idx}-{idx}"
@@ -231,14 +307,22 @@ def main(page: ft.Page):
 
     def select_team(team_code: str):
         state["selected_team"] = team_code
+        play_sfx("click")
         save_state()
         refresh_ui()
 
     def set_bonus_mode(mode: str):
         state["bonus_mode"] = mode
+        play_sfx("click")
         refresh_ui()
 
-    def handle_set_victory(winner_code: str, win_reason: str, allow_apollo: bool = True):
+    def handle_set_victory(
+        winner_code: str,
+        win_reason: str,
+        allow_apollo: bool = True,
+        force_apollo: bool = False,
+    ):
+        play_sfx("intro")
         winner_name = state["team_a"] if winner_code == "A" else state["team_b"]
         loser_name = state["team_b"] if winner_code == "A" else state["team_a"]
         winner_score = state["score_a"] if winner_code == "A" else state["score_b"]
@@ -246,7 +330,7 @@ def main(page: ft.Page):
 
         # Pasal 12d: Apollo (2 Set sekaligus) jika menang >=101, lawan 0, bukan Ronde 1, bukan 7 Balak/1 Seri
         rounds_completed = len([h for h in state["history"] if "Ronde" in h["label"] or "Pass Palsu" in h["label"]])
-        is_apollo = (
+        is_apollo = force_apollo or (
             allow_apollo
             and winner_score >= TARGET_SKOR
             and loser_score == 0
@@ -261,6 +345,7 @@ def main(page: ft.Page):
         is_match_over = (projected_sets_a >= target_sets) or (projected_sets_b >= target_sets)
 
         def proceed_next(e):
+            play_sfx("click")
             state["sets_a"] = projected_sets_a
             state["sets_b"] = projected_sets_b
             if is_match_over:
@@ -290,6 +375,7 @@ def main(page: ft.Page):
             refresh_ui()
 
         def reset_match_now(e):
+            play_sfx("shake")
             state["score_a"] = 0
             state["score_b"] = 0
             state["sets_a"] = 0
@@ -312,7 +398,7 @@ def main(page: ft.Page):
         )
 
         apollo_note = (
-            "Bonus APOLLO Aktif (Lawan 0 poin > Ronde 1) → Langsung +2 Set!"
+            "Bonus APOLLO Aktif (Lawan 0 poin) → Langsung +2 Set sekaligus!"
             if is_apollo
             else f"Perolehan Set: +{sets_earned} Set (Skor Set: {projected_sets_a} - {projected_sets_b})"
         )
@@ -371,6 +457,7 @@ def main(page: ft.Page):
 
         state["round_num"] += 1
         state["bonus_mode"] = "1x"
+        play_sfx("click")
         save_state()
         refresh_ui()
 
@@ -394,6 +481,7 @@ def main(page: ft.Page):
         if ends_round:
             state["round_num"] += 1
 
+        play_sfx("shake")
         save_state()
         refresh_ui()
 
@@ -429,6 +517,7 @@ def main(page: ft.Page):
                 state["minor_a"] = 0
                 state["major_a"] += 1
                 state["score_b"] += 11
+            play_sfx("shake")
             save_state()
             refresh_ui()
 
@@ -451,10 +540,51 @@ def main(page: ft.Page):
                 state["minor_b"] += 1
             else:
                 state["minor_a"] += 1
+            play_sfx("shake")
             save_state()
             refresh_ui()
 
+    def trigger_apollo_win(e):
+        """Pasal 3h & 12d: Kemenangan Apollo (+2 Set sekaligus jika menang >=101 dan lawan 0 poin)."""
+        team = state["selected_team"]
+        team_name = state["team_a"] if team == "A" else state["team_b"]
+        opp_score = state["score_b"] if team == "A" else state["score_a"]
+
+        warn_note = (
+            "\n⚠️ Catatan: Skor lawan saat ini tidak 0 (menurut Pasal 12d, Apollo sah jika lawan 0 poin & bukan Ronde 1)."
+            if opp_score > 0
+            else "\nSkor lawan 0 poin → Sah mendapat +2 Set sekaligus (Pasal 12d)."
+        )
+
+        def confirm_apollo(ev):
+            record_snapshot(team, "APOLLO", "KEMENANGAN APOLLO (+2 SET)")
+            if team == "A":
+                state["score_a"] = max(TARGET_SKOR, state["score_a"])
+            else:
+                state["score_b"] = max(TARGET_SKOR, state["score_b"])
+            save_state()
+            close_dialog(confirm_dlg)
+            refresh_ui()
+            handle_set_victory(team, "Kemenangan Spesial APOLLO (+2 Set)", allow_apollo=True, force_apollo=True)
+
+        confirm_dlg = ft.AlertDialog(
+            modal=True,
+            bgcolor=CARD_BG,
+            title=ft.Text("🔥 Konfirmasi APOLLO (+2 Set)", color=PURPLE_SPECIAL, weight=ft.FontWeight.BOLD),
+            content=ft.Text(
+                f"Tetapkan {team_name} menang APOLLO (langsung +2 Set)?{warn_note}",
+                color=TEXT_PRIMARY,
+                size=13,
+            ),
+            actions=[
+                ft.TextButton("Batal", on_click=lambda ev: close_dialog(confirm_dlg)),
+                make_button("Ya, APOLLO!", PURPLE_SPECIAL, TEXT_PRIMARY, confirm_apollo),
+            ],
+        )
+        open_dialog(confirm_dlg)
+
     def trigger_seven_balak_win(e):
+        """Pasal 8e: 7 Balak / 1 Seri Lengkap -> Skor digenapkan jadi 101, menang Set, Apollo TIDAK berlaku."""
         team = state["selected_team"]
         team_name = state["team_a"] if team == "A" else state["team_b"]
 
@@ -487,6 +617,7 @@ def main(page: ft.Page):
         open_dialog(confirm_dlg)
 
     def trigger_false_pass_under_3(e):
+        """Pasal 10e.2: Pass Palsu sisa <=3 batu -> Lawan kalah Set; skor tim menang <51 jadi 101, jika >=51 ditambah +75."""
         winner_team = state["selected_team"]
         winner_name = state["team_a"] if winner_team == "A" else state["team_b"]
         loser_name = state["team_b"] if winner_team == "A" else state["team_a"]
@@ -542,6 +673,7 @@ def main(page: ft.Page):
             state["minor_b"] = snap["minor_b"]
             state["major_a"] = snap["major_a"]
             state["major_b"] = snap["major_b"]
+        play_sfx("shake")
         save_state()
         refresh_ui()
 
@@ -582,6 +714,7 @@ def main(page: ft.Page):
             state["team_a"] = (tf_a.value or "TIM A").strip().upper()
             state["team_b"] = (tf_b.value or "TIM B").strip().upper()
             state["match_format"] = selected_fmt[0]
+            play_sfx("click")
             save_state()
             close_dialog(edit_dlg)
             refresh_ui()
@@ -617,6 +750,7 @@ def main(page: ft.Page):
             state["major_a"] = 0
             state["major_b"] = 0
             state["history"] = []
+            play_sfx("shake")
             save_state()
             close_dialog(rst_dlg)
             refresh_ui()
@@ -633,6 +767,7 @@ def main(page: ft.Page):
             state["major_a"] = 0
             state["major_b"] = 0
             state["history"] = []
+            play_sfx("shake")
             save_state()
             close_dialog(rst_dlg)
             refresh_ui()
@@ -701,6 +836,9 @@ def main(page: ft.Page):
         set_badge_text.value = f"{fmt_label} • SET {state['set_num']} ({state['sets_a']} - {state['sets_b']})"
         round_balak_text.value = f"Ronde {state['round_num']} • Pembuka: {get_opening_balak(state['round_num'])}"
 
+        sound_btn.icon = get_icon("VOLUME_UP" if state.get("sound_on", True) else "VOLUME_OFF")
+        sound_btn.icon_color = EMERALD if state.get("sound_on", True) else TEXT_MUTED
+
         team_a_name_text.value = state["team_a"]
         team_b_name_text.value = state["team_b"]
         score_a_text.value = str(state["score_a"])
@@ -746,7 +884,7 @@ def main(page: ft.Page):
                 pts_str = item.get("points_str", "")
                 lbl = item.get("label", "")
                 badge_col = RED_ALERT if ("PENALTI" in lbl or "Pass Palsu" in lbl or "Ringan" in lbl) else (
-                    PURPLE_SPECIAL if ("BALAK" in lbl or "Sempurna" in lbl) else EMERALD
+                    PURPLE_SPECIAL if ("APOLLO" in lbl or "BALAK" in lbl or "Sempurna" in lbl) else EMERALD
                 )
                 history_column.controls.append(
                     ft.Container(
@@ -801,13 +939,13 @@ def main(page: ft.Page):
         alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
         controls=[
             ft.Row(
-                spacing=10,
+                spacing=8,
                 controls=[
                     logo_widget,
                     ft.Column(
                         spacing=1,
                         controls=[
-                            ft.Text("ORADO DOMINO 101", size=15, weight=ft.FontWeight.BOLD, color=TEXT_PRIMARY),
+                            ft.Text("ORADO DOMINO 101", size=14, weight=ft.FontWeight.BOLD, color=TEXT_PRIMARY),
                             set_badge_text,
                             round_balak_text,
                         ],
@@ -815,8 +953,9 @@ def main(page: ft.Page):
                 ],
             ),
             ft.Row(
-                spacing=2,
+                spacing=0,
                 controls=[
+                    sound_btn,
                     ft.IconButton(
                         icon=get_icon("EDIT"),
                         tooltip="Pengaturan Tim & Format BO3/BO5",
@@ -922,12 +1061,20 @@ def main(page: ft.Page):
         content=ft.Column(
             spacing=8,
             controls=[
-                ft.Text("KEPUTUSAN SET KHUSUS (PASAL 8e & 10e.2)", size=11, weight=ft.FontWeight.BOLD, color=PURPLE_SPECIAL),
+                ft.Text("KEPUTUSAN SET KHUSUS (PASAL 8e, 10e.2 & 12d)", size=11, weight=ft.FontWeight.BOLD, color=PURPLE_SPECIAL),
                 ft.Row(
-                    spacing=8,
+                    spacing=6,
                     controls=[
                         make_button(
-                            "🀄 7 Balak / 1 Seri",
+                            "🔥 APOLLO",
+                            PURPLE_SPECIAL,
+                            TEXT_PRIMARY,
+                            trigger_apollo_win,
+                            expand=True,
+                            height=42,
+                        ),
+                        make_button(
+                            "🀄 7 Balak",
                             GOLD,
                             BG_DARK,
                             trigger_seven_balak_win,
@@ -935,9 +1082,9 @@ def main(page: ft.Page):
                             height=42,
                         ),
                         make_button(
-                            "🚫 Pass Palsu ≤3",
-                            PURPLE_SPECIAL,
-                            TEXT_PRIMARY,
+                            "🚫 Pass ≤3",
+                            "#3B181E",
+                            RED_ALERT,
                             trigger_false_pass_under_3,
                             expand=True,
                             height=42,
