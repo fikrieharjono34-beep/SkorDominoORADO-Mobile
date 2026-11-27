@@ -2,7 +2,6 @@ import base64
 from datetime import datetime
 import math
 import os
-import random
 import struct
 import tempfile
 import wave
@@ -88,8 +87,8 @@ def extract_embedded_logo() -> str | None:
         return None
 
 
-# --- GENERATOR EFEK SUARA & SUARA ORANG (WASIT INDONESIA 16-BIT WAV) ---
-def _write_wav(filepath: str, samples: list[int], sample_rate: int = 16000):
+# --- GENERATOR EFEK NADA KETUKAN & FANFARE ---
+def _write_wav(filepath: str, samples: list[int], sample_rate: int = 44100):
     if os.path.exists(filepath):
         return
     try:
@@ -103,124 +102,12 @@ def _write_wav(filepath: str, samples: list[int], sample_rate: int = 16000):
         pass
 
 
-def _biquad_coeffs(freq: float, bw: float, sr: int):
-    w0 = 2.0 * math.pi * freq / sr
-    alpha = math.sin(w0) * math.sinh(math.log(2.0) / 2.0 * (bw / max(1.0, freq)) * w0 / max(1e-6, math.sin(w0)))
-    b0 = alpha
-    b2 = -alpha
-    a0 = 1.0 + alpha
-    a1 = -2.0 * math.cos(w0)
-    a2 = 1.0 - alpha
-    return (b0 / a0, 0.0, b2 / a0, a1 / a0, a2 / a0)
-
-
-def _synthesize_indonesian_speech(phoneme_seq: str, sr: int = 16000) -> list[int]:
-    """Sintesis suara vokal forman bahasa Indonesia untuk pengumuman wasit offline."""
-    # Format: (F1, F2, F3, gain, mode) -> mode: 'V'=vokal, 'N'=nasal, 'R'=getar, 'S'=desis, 'P'=letup, ' '_spasi
-    table = {
-        "a": (740, 1180, 2450, 1.00, "V"),
-        "i": (290, 2240, 2950, 0.88, "V"),
-        "u": (320, 880, 2240, 0.90, "V"),
-        "e": (520, 1840, 2480, 0.92, "V"),
-        "@": (490, 1380, 2380, 0.82, "V"),
-        "o": (550, 860, 2410, 0.95, "V"),
-        "m": (260, 1050, 2200, 0.45, "N"),
-        "n": (270, 1350, 2300, 0.45, "N"),
-        "N": (280, 1150, 2250, 0.45, "N"),
-        "l": (360, 1300, 2480, 0.62, "V"),
-        "r": (420, 1450, 2350, 0.68, "R"),
-        "s": (4200, 5400, 6600, 0.50, "S"),
-        "p": (600, 1200, 2400, 0.35, "P"),
-        "t": (1800, 3200, 4500, 0.38, "P"),
-        "k": (1200, 2200, 3100, 0.38, "P"),
-        "b": (350, 1100, 2300, 0.45, "B"),
-        "d": (400, 1650, 2550, 0.45, "B"),
-        "j": (380, 2100, 2850, 0.52, "B"),
-    }
-
-    tokens = phoneme_seq.split()
-    total_tokens = max(1, len(tokens))
-    out: list[int] = []
-    rng = random.Random(42)
-
-    phase = 0.0
-    z1 = [0.0, 0.0, 0.0]
-    z2 = [0.0, 0.0, 0.0]
-
-    for idx, tok in enumerate(tokens):
-        if tok == "_":
-            out.extend([0] * int(sr * 0.075))
-            continue
-
-        spec = table.get(tok)
-        if not spec:
-            continue
-
-        f1, f2, f3, gain, mode = spec
-        if mode == "V":
-            dur = 0.095
-        elif mode in ("N", "R"):
-            dur = 0.068
-        elif mode == "S":
-            dur = 0.085
-        else:
-            dur = 0.052
-
-        n_samples = int(sr * dur)
-        c1 = _biquad_coeffs(f1, 95.0, sr)
-        c2 = _biquad_coeffs(f2, 130.0, sr)
-        c3 = _biquad_coeffs(f3, 180.0, sr)
-
-        progress = idx / total_tokens
-        base_pitch = 142.0 + 16.0 * math.sin(progress * math.pi) - 18.0 * (progress ** 2)
-
-        for i in range(n_samples):
-            t = i / sr
-            rel = i / max(1, n_samples)
-
-            if mode in ("P", "B") and rel < 0.55:
-                exc = (math.sin(phase * 2.0 * math.pi) * 0.08) if mode == "B" else 0.0
-            elif mode == "S":
-                exc = rng.uniform(-1.0, 1.0) * 0.65
-            elif mode in ("P", "B"):
-                burst_env = math.exp(-(rel - 0.55) * 18.0)
-                exc = rng.uniform(-1.0, 1.0) * 0.75 * burst_env
-            else:
-                f0 = base_pitch * (1.0 + 0.02 * math.sin(2.0 * math.pi * 5.0 * t))
-                phase += f0 / sr
-                if phase >= 1.0:
-                    phase -= 1.0
-                # Pulsa glotal kaya harmonik
-                glottal = (2.0 * phase - 1.0) - 0.45 * math.sin(2.0 * math.pi * phase)
-                if mode == "R":
-                    glottal *= (0.45 + 0.55 * abs(math.sin(2.0 * math.pi * 28.0 * t)))
-                exc = glottal * 0.55
-
-            # Filter 3 forman paralel
-            y_total = 0.0
-            for fi, (b0, b1, b2, a1, a2), weight in [
-                (0, c1, 1.00),
-                (1, c2, 0.72),
-                (2, c3, 0.42),
-            ]:
-                y = b0 * exc + z1[fi]
-                z1[fi] = b1 * exc - a1 * y + z2[fi]
-                z2[fi] = b2 * exc - a2 * y
-                y_total += y * weight
-
-            env = math.sin(math.pi * min(1.0, rel)) ** 0.35
-            sample_val = int(y_total * gain * env * 29000)
-            out.append(sample_val)
-
-    return out
-
-
-def build_all_audio() -> dict[str, str]:
-    sfx_dir = os.path.join(tempfile.gettempdir(), "orado_domino_sfx_v3")
+def build_chime_sfx() -> dict[str, str]:
+    sfx_dir = os.path.join(tempfile.gettempdir(), "orado_domino_chimes_v4")
     os.makedirs(sfx_dir, exist_ok=True)
-    sr = 16000
+    sr = 44100
 
-    # 1. Ketukan batu domino
+    # 1. Ketukan batu domino (55 ms)
     click_path = os.path.join(sfx_dir, "orado_click.wav")
     click_samples = []
     for i in range(int(sr * 0.055)):
@@ -230,7 +117,7 @@ def build_all_audio() -> dict[str, str]:
         click_samples.append(int(val * 26000))
     _write_wav(click_path, click_samples, sr)
 
-    # 2. Nada peringatan penalti / undo
+    # 2. Nada undo / reset (220 ms)
     shake_path = os.path.join(sfx_dir, "orado_shake.wav")
     shake_samples = []
     for i in range(int(sr * 0.22)):
@@ -242,7 +129,7 @@ def build_all_audio() -> dict[str, str]:
         shake_samples.append(int(val * 26000))
     _write_wav(shake_path, shake_samples, sr)
 
-    # 3. Fanfare pembuka / kemenangan
+    # 3. Fanfare pembuka / kemenangan set normal (480 ms)
     win_path = os.path.join(sfx_dir, "orado_win.wav")
     win_samples = []
     for freq, dur in [(523.25, 0.10), (659.25, 0.10), (783.99, 0.10), (1046.50, 0.18)]:
@@ -253,31 +140,11 @@ def build_all_audio() -> dict[str, str]:
             win_samples.append(int(val * 25000))
     _write_wav(win_path, win_samples, sr)
 
-    # 4. Suara Orang (Wasit Indonesia) untuk Penalti, Set Khusus, & Bonus
-    voice_scripts = {
-        "v_ringan": "p @ l a N g a r a n _ r i N a n",
-        "v_pen11": "p e n a l t i _ s @ b @ l a s _ p o i n",
-        "v_pen25": "p e n a l t i _ d u a _ p u l u h _ l i m a",
-        "v_pass50": "p a s _ p a l s u _ l i m a _ p u l u h _ p o i n",
-        "v_pass_kalah": "p a s _ p a l s u _ k a l a h _ s e t",
-        "v_apollo": "a p o l o _ m @ n a N _ d u a _ s e t",
-        "v_7balak": "t u j u h _ b a l a k _ s a h _ s @ r a t u s _ s a t u",
-        "v_2x": "d u a _ k a l i _ u j u N _ s a m a",
-        "v_balak50": "b a l a k _ s @ m p u r n a _ l i m a _ p u l u h",
-    }
-
-    paths = {
+    return {
         "click": click_path,
         "shake": shake_path,
         "intro": win_path,
     }
-    for key, seq in voice_scripts.items():
-        v_path = os.path.join(sfx_dir, f"orado_{key}.wav")
-        if not os.path.exists(v_path):
-            _write_wav(v_path, _synthesize_indonesian_speech(seq, sr), sr)
-        paths[key] = v_path
-
-    return paths
 
 
 def main(page: ft.Page):
@@ -339,48 +206,61 @@ def main(page: ft.Page):
 
     load_state()
 
-    # --- SISTEM AUDIO & SUARA WASIT (flet-audio) ---
-    all_audio_paths = build_all_audio()
+    # --- SISTEM AUDIO & SUARA WASIT INDONESIA (flet-audio) ---
+    chime_paths = build_chime_sfx()
     audio_players = {}
     AudioClass = getattr(fta, "Audio", None) if fta else None
     ReleaseMode = getattr(fta, "ReleaseMode", None) if fta else None
 
     if AudioClass:
-        asset_overrides = {
-            "intro": "intro_mlbb.wav",
-            "click": "ui_click.wav",
-            "shake": "ui_shake.wav",
-            "v_ringan": "voice_ringan.wav",
-            "v_pen11": "voice_penalti_11.wav",
-            "v_pen25": "voice_penalti_25.wav",
-            "v_pass50": "voice_pass_palsu_50.wav",
-            "v_pass_kalah": "voice_pass_palsu_kalah.wav",
-            "v_apollo": "voice_apollo.wav",
-            "v_7balak": "voice_7balak.wav",
-            "v_2x": "voice_2x.wav",
-            "v_balak50": "voice_balak50.wav",
+        # 1. Efek nada ketukan & fanfare dari memori temp
+        for sound_key, wav_path in chime_paths.items():
+            try:
+                kwargs = {
+                    "src": wav_path,
+                    "autoplay": (sound_key == "intro" and state.get("sound_on", True)),
+                    "volume": 1.0,
+                }
+                if ReleaseMode and hasattr(ReleaseMode, "STOP"):
+                    kwargs["release_mode"] = ReleaseMode.STOP
+                player = AudioClass(**kwargs)
+                if hasattr(page, "services"):
+                    page.services.append(player)
+                else:
+                    page.overlay.append(player)
+                audio_players[sound_key] = player
+            except Exception:
+                pass
+
+        # 2. Suara manusia bahasa Indonesia yang dibundel di assets/
+        voice_assets = {
+            "v_ringan": "voice_ringan.mp3",
+            "v_pen11": "voice_penalti_11.mp3",
+            "v_pen25": "voice_penalti_25.mp3",
+            "v_pass50": "voice_pass_palsu_50.mp3",
+            "v_pass_kalah": "voice_pass_palsu_kalah.mp3",
+            "v_apollo": "voice_apollo.mp3",
+            "v_7balak": "voice_7balak.mp3",
+            "v_2x": "voice_2x.mp3",
+            "v_balak50": "voice_balak50.mp3",
         }
-        for sound_key, fallback_path in all_audio_paths.items():
-            custom_name = asset_overrides.get(sound_key, "")
-            custom_disk = os.path.join("assets", custom_name) if custom_name else ""
-            audio_src = custom_name if (custom_disk and os.path.exists(custom_disk)) else fallback_path
-            if audio_src:
-                try:
-                    kwargs = {
-                        "src": audio_src,
-                        "autoplay": (sound_key == "intro" and state.get("sound_on", True)),
-                        "volume": 1.0,
-                    }
-                    if ReleaseMode and hasattr(ReleaseMode, "STOP"):
-                        kwargs["release_mode"] = ReleaseMode.STOP
-                    player = AudioClass(**kwargs)
-                    if hasattr(page, "services"):
-                        page.services.append(player)
-                    else:
-                        page.overlay.append(player)
-                    audio_players[sound_key] = player
-                except Exception:
-                    pass
+        for v_key, asset_name in voice_assets.items():
+            try:
+                kwargs = {
+                    "src": asset_name,
+                    "autoplay": False,
+                    "volume": 1.0,
+                }
+                if ReleaseMode and hasattr(ReleaseMode, "STOP"):
+                    kwargs["release_mode"] = ReleaseMode.STOP
+                player = AudioClass(**kwargs)
+                if hasattr(page, "services"):
+                    page.services.append(player)
+                else:
+                    page.overlay.append(player)
+                audio_players[v_key] = player
+            except Exception:
+                pass
 
     async def _play_sound_async(player):
         try:
@@ -1758,3 +1638,4 @@ if __name__ == "__main__":
         ft.run(main, assets_dir="assets")
     else:
         ft.app(target=main, assets_dir="assets")
+        
