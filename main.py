@@ -159,6 +159,7 @@ def main(page: ft.Page):
         "team_a": "TIM MERAH",
         "team_b": "TIM BIRU",
         "match_format": "BO3",  # "BO3" = Reguler (Menang 2 Set), "BO5" = Final (Menang 3 Set)
+        "beradu_mode": "selisih",  # "selisih" = Lawan - Pemenang (Standar ORADO), "total_lawan" = Total Sisa Lawan
         "score_a": 0,
         "score_b": 0,
         "sets_a": 0,
@@ -262,6 +263,8 @@ def main(page: ft.Page):
             "v_7balak": "voice_7balak.mp3",
             "v_2x": "voice_2x.mp3",
             "v_balak50": "voice_balak50.mp3",
+            "v_beradu": "voice_beradu.mp3",
+            "v_beradu_seri": "voice_beradu_seri.mp3",
         }
         for v_key, asset_name in voice_assets.items():
             try:
@@ -1026,6 +1029,186 @@ def main(page: ft.Page):
         elif state["score_b"] >= TARGET_SKOR:
             handle_set_victory("B", f"Mencapai {state['score_b']} Poin (Domino 101)", allow_apollo=True)
 
+    # --- KALKULATOR & PENGATURAN POIN BATU BERADU (GAPLE / MACET) ---
+    def open_batu_beradu_dialog(e):
+        play_sfx("v_beradu")
+        selected_calc = [state.get("beradu_mode", "selisih")]
+
+        tf_sisa_a = ft.TextField(
+            label=f"Sisa Mata {state['team_a']} (Merah)",
+            hint_text="Contoh: 11",
+            keyboard_type=ft.KeyboardType.NUMBER,
+            text_align=ft.TextAlign.CENTER,
+            border_color=RED_ALERT,
+            focused_border_color=GOLD,
+            height=46,
+        )
+        tf_sisa_b = ft.TextField(
+            label=f"Sisa Mata {state['team_b']} (Biru)",
+            hint_text="Contoh: 24",
+            keyboard_type=ft.KeyboardType.NUMBER,
+            text_align=ft.TextAlign.CENTER,
+            border_color=BLUE_TEAM,
+            focused_border_color=GOLD,
+            height=46,
+        )
+
+        preview_text = ft.Text(
+            "Masukkan total mata/bulatan sisa batu kedua tim.",
+            size=12,
+            weight=ft.FontWeight.BOLD,
+            color=TEXT_MUTED,
+        )
+
+        btn_mode_selisih = make_button(
+            "Selisih (Lawan−Menang)",
+            GOLD if selected_calc[0] == "selisih" else CARD_ACTIVE,
+            BG_DARK if selected_calc[0] == "selisih" else TEXT_PRIMARY,
+            None,
+            expand=True,
+            height=36,
+        )
+        btn_mode_total = make_button(
+            "Total Sisa Lawan",
+            GOLD if selected_calc[0] == "total_lawan" else CARD_ACTIVE,
+            BG_DARK if selected_calc[0] == "total_lawan" else TEXT_PRIMARY,
+            None,
+            expand=True,
+            height=36,
+        )
+
+        def compute_preview(ev=None):
+            raw_a = (tf_sisa_a.value or "").strip()
+            raw_b = (tf_sisa_b.value or "").strip()
+            if not (raw_a.isdigit() and raw_b.isdigit()):
+                preview_text.value = "Masukkan angka sisa mata kedua tim (contoh: 11 dan 24)."
+                preview_text.color = TEXT_MUTED
+                if ev is not None:
+                    page.update()
+                return
+
+            va = int(raw_a)
+            vb = int(raw_b)
+            if va == vb:
+                preview_text.value = f"⚖️ SERI / DRAW ({va} = {vb}) → +0 Poin (Lanjut Ronde Berikutnya)"
+                preview_text.color = AMBER
+            elif va < vb:
+                pts = (vb - va) if selected_calc[0] == "selisih" else vb
+                rumus_info = f"Selisih {vb}−{va}" if selected_calc[0] == "selisih" else f"Total sisa {state['team_b']}"
+                preview_text.value = f"🏆 Pemenang: {state['team_a']} • +{pts} Poin ({rumus_info})"
+                preview_text.color = EMERALD
+            else:
+                pts = (va - vb) if selected_calc[0] == "selisih" else va
+                rumus_info = f"Selisih {va}−{vb}" if selected_calc[0] == "selisih" else f"Total sisa {state['team_a']}"
+                preview_text.value = f"🏆 Pemenang: {state['team_b']} • +{pts} Poin ({rumus_info})"
+                preview_text.color = EMERALD
+
+            if ev is not None:
+                page.update()
+
+        def set_beradu_calc(mode_val: str):
+            play_sfx("click")
+            selected_calc[0] = mode_val
+            state["beradu_mode"] = mode_val
+            save_state()
+            btn_mode_selisih.bgcolor = GOLD if mode_val == "selisih" else CARD_ACTIVE
+            btn_mode_selisih.color = BG_DARK if mode_val == "selisih" else TEXT_PRIMARY
+            btn_mode_total.bgcolor = GOLD if mode_val == "total_lawan" else CARD_ACTIVE
+            btn_mode_total.color = BG_DARK if mode_val == "total_lawan" else TEXT_PRIMARY
+            compute_preview(True)
+
+        btn_mode_selisih.on_click = lambda ev: set_beradu_calc("selisih")
+        btn_mode_total.on_click = lambda ev: set_beradu_calc("total_lawan")
+        tf_sisa_a.on_change = compute_preview
+        tf_sisa_b.on_change = compute_preview
+
+        def confirm_batu_beradu(ev):
+            raw_a = (tf_sisa_a.value or "").strip()
+            raw_b = (tf_sisa_b.value or "").strip()
+            if not (raw_a.isdigit() and raw_b.isdigit()):
+                show_toast("Isi angka sisa mata kedua tim terlebih dahulu!")
+                return
+
+            va = int(raw_a)
+            vb = int(raw_b)
+            calc_mode = selected_calc[0]
+            state["beradu_mode"] = calc_mode
+
+            if va == vb:
+                record_snapshot(
+                    state["selected_team"],
+                    "+0",
+                    f"Ronde {state['round_num']} • Batu Beradu SERI ({va} = {vb})",
+                )
+                state["round_num"] += 1
+                state["bonus_mode"] = "1x"
+                play_sfx("v_beradu_seri")
+                save_state()
+                close_dialog(beradu_dlg)
+                refresh_ui()
+                show_toast(f"Batu Beradu Seri ({va} = {vb}) • +0 Poin, lanjut Ronde {state['round_num']}!")
+                return
+
+            if va < vb:
+                win_code = "A"
+                pts = (vb - va) if calc_mode == "selisih" else vb
+                detail_str = f"Ronde {state['round_num']} • Batu Beradu ({state['team_b']} {vb} vs {state['team_a']} {va})"
+            else:
+                win_code = "B"
+                pts = (va - vb) if calc_mode == "selisih" else va
+                detail_str = f"Ronde {state['round_num']} • Batu Beradu ({state['team_a']} {va} vs {state['team_b']} {vb})"
+
+            record_snapshot(win_code, f"+{pts}", detail_str)
+            if win_code == "A":
+                state["score_a"] += pts
+            else:
+                state["score_b"] += pts
+
+            state["round_num"] += 1
+            state["bonus_mode"] = "1x"
+            play_sfx("click")
+            save_state()
+            close_dialog(beradu_dlg)
+            refresh_ui()
+
+            if state["score_a"] >= TARGET_SKOR:
+                handle_set_victory("A", f"Mencapai {state['score_a']} Poin via Batu Beradu", allow_apollo=True)
+            elif state["score_b"] >= TARGET_SKOR:
+                handle_set_victory("B", f"Mencapai {state['score_b']} Poin via Batu Beradu", allow_apollo=True)
+
+        beradu_dlg = ft.AlertDialog(
+            modal=True,
+            bgcolor=CARD_BG,
+            title=ft.Text("⚔️ Batu Beradu (Gaple / Macet)", color=GOLD, weight=ft.FontWeight.BOLD, size=16),
+            content=ft.Column(
+                tight=True,
+                spacing=10,
+                controls=[
+                    ft.Text(
+                        "Tim dengan total sisa mata batu PALING SEDIKIT memenangkan ronde.",
+                        size=12,
+                        color=TEXT_MUTED,
+                    ),
+                    ft.Text("Rumus Poin Batu Beradu:", size=11, weight=ft.FontWeight.BOLD, color=TEXT_PRIMARY),
+                    ft.Row(spacing=6, controls=[btn_mode_selisih, btn_mode_total]),
+                    tf_sisa_a,
+                    tf_sisa_b,
+                    ft.Container(
+                        padding=10,
+                        border_radius=8,
+                        bgcolor=BG_DARK,
+                        border=border_all(1, BORDER_COLOR),
+                        content=preview_text,
+                    ),
+                ],
+            ),
+            actions=[
+                ft.TextButton("Batal", on_click=lambda ev: close_dialog(beradu_dlg)),
+                make_button("Sahkan Poin Beradu", EMERALD, BG_DARK, confirm_batu_beradu),
+            ],
+        )
+        open_dialog(beradu_dlg)
+
     def apply_penalty(points: int, reason: str, voice_key: str, ends_round: bool = False):
         winner_team = state["selected_team"]
 
@@ -1268,6 +1451,7 @@ def main(page: ft.Page):
         tf_a = ft.TextField(label="Nama Tim Merah (Tim A)", value=state["team_a"], border_color=RED_ALERT)
         tf_b = ft.TextField(label="Nama Tim Biru (Tim B)", value=state["team_b"], border_color=BLUE_TEAM)
         selected_fmt = [state["match_format"]]
+        selected_beradu = [state.get("beradu_mode", "selisih")]
 
         btn_bo3 = make_button(
             "Reguler (BO3)",
@@ -1286,6 +1470,23 @@ def main(page: ft.Page):
             height=40,
         )
 
+        btn_set_selisih = make_button(
+            "Selisih Mata (Standar)",
+            GOLD if selected_beradu[0] == "selisih" else CARD_ACTIVE,
+            BG_DARK if selected_beradu[0] == "selisih" else TEXT_PRIMARY,
+            None,
+            expand=True,
+            height=38,
+        )
+        btn_set_total = make_button(
+            "Total Sisa Lawan",
+            GOLD if selected_beradu[0] == "total_lawan" else CARD_ACTIVE,
+            BG_DARK if selected_beradu[0] == "total_lawan" else TEXT_PRIMARY,
+            None,
+            expand=True,
+            height=38,
+        )
+
         def pick_fmt(fmt_code: str):
             play_sfx("click")
             selected_fmt[0] = fmt_code
@@ -1295,13 +1496,25 @@ def main(page: ft.Page):
             btn_bo5.color = BG_DARK if fmt_code == "BO5" else TEXT_PRIMARY
             page.update()
 
+        def pick_beradu_cfg(b_code: str):
+            play_sfx("click")
+            selected_beradu[0] = b_code
+            btn_set_selisih.bgcolor = GOLD if b_code == "selisih" else CARD_ACTIVE
+            btn_set_selisih.color = BG_DARK if b_code == "selisih" else TEXT_PRIMARY
+            btn_set_total.bgcolor = GOLD if b_code == "total_lawan" else CARD_ACTIVE
+            btn_set_total.color = BG_DARK if b_code == "total_lawan" else TEXT_PRIMARY
+            page.update()
+
         btn_bo3.on_click = lambda ev: pick_fmt("BO3")
         btn_bo5.on_click = lambda ev: pick_fmt("BO5")
+        btn_set_selisih.on_click = lambda ev: pick_beradu_cfg("selisih")
+        btn_set_total.on_click = lambda ev: pick_beradu_cfg("total_lawan")
 
         def save_settings(ev):
             state["team_a"] = (tf_a.value or "TIM MERAH").strip().upper()
             state["team_b"] = (tf_b.value or "TIM BIRU").strip().upper()
             state["match_format"] = selected_fmt[0]
+            state["beradu_mode"] = selected_beradu[0]
             play_sfx("click")
             save_state()
             close_dialog(edit_dlg)
@@ -1319,6 +1532,8 @@ def main(page: ft.Page):
                     tf_b,
                     ft.Text("Format Set (Pasal 11):", size=12, color=TEXT_MUTED),
                     ft.Row(spacing=8, controls=[btn_bo3, btn_bo5]),
+                    ft.Text("Aturan Poin Batu Beradu:", size=12, color=TEXT_MUTED),
+                    ft.Row(spacing=8, controls=[btn_set_selisih, btn_set_total]),
                 ],
             ),
             actions=[
@@ -1408,6 +1623,14 @@ def main(page: ft.Page):
     btn_bonus_1x = make_button("1x Normal", EMERALD, BG_DARK, lambda e: set_bonus_mode("1x"), expand=True, height=36)
     btn_bonus_2x = make_button("2x Ujung/Sama", CARD_ACTIVE, TEXT_PRIMARY, lambda e: set_bonus_mode("2x"), expand=True, height=36)
     btn_bonus_50 = make_button("+50 Balak Semp.", CARD_ACTIVE, TEXT_PRIMARY, lambda e: set_bonus_mode("+50"), expand=True, height=36)
+    btn_batu_beradu = make_button(
+        "⚔️ Batu Beradu (Hitung Sisa Mata)",
+        "#242B38",
+        GOLD,
+        open_batu_beradu_dialog,
+        expand=True,
+        height=40,
+    )
 
     def refresh_ui():
         fmt_label = "FINAL BO5" if state["match_format"] == "BO5" else "REGULER BO3"
@@ -1448,6 +1671,9 @@ def main(page: ft.Page):
         btn_bonus_2x.color = BG_DARK if bm == "2x" else TEXT_PRIMARY
         btn_bonus_50.bgcolor = PURPLE_SPECIAL if bm == "+50" else CARD_ACTIVE
         btn_bonus_50.color = TEXT_PRIMARY
+
+        beradu_tag = "Selisih" if state.get("beradu_mode", "selisih") == "selisih" else "Sisa Lawan"
+        btn_batu_beradu.text = f"⚔️ Batu Beradu ({beradu_tag})"
 
         # Render Catatan Wasit
         ref_notes_column.controls.clear()
@@ -1501,9 +1727,15 @@ def main(page: ft.Page):
                 t_name = state["team_a"] if item["team"] == "A" else state["team_b"]
                 pts_str = item.get("points_str", "")
                 lbl = item.get("label", "")
-                badge_col = RED_ALERT if ("PENALTI" in lbl or "Pass Palsu" in lbl or "Ringan" in lbl) else (
-                    PURPLE_SPECIAL if ("APOLLO" in lbl or "BALAK" in lbl or "Sempurna" in lbl) else EMERALD
-                )
+                if "PENALTI" in lbl or "Pass Palsu" in lbl or "Ringan" in lbl:
+                    badge_col = RED_ALERT
+                elif "APOLLO" in lbl or "BALAK" in lbl or "Sempurna" in lbl:
+                    badge_col = PURPLE_SPECIAL
+                elif "Batu Beradu" in lbl:
+                    badge_col = GOLD
+                else:
+                    badge_col = EMERALD
+
                 history_column.controls.append(
                     ft.Container(
                         padding=pad_sym(10, 8),
@@ -1636,7 +1868,7 @@ def main(page: ft.Page):
                     sound_btn,
                     ft.IconButton(
                         icon=get_icon("EDIT"),
-                        tooltip="Pengaturan Tim & Format BO3/BO5",
+                        tooltip="Pengaturan Tim, Format & Batu Beradu",
                         icon_color=GOLD,
                         on_click=open_settings_dialog,
                     ),
@@ -1672,6 +1904,7 @@ def main(page: ft.Page):
                         make_button("TAMBAH", EMERALD, BG_DARK, handle_manual_submit, height=46),
                     ],
                 ),
+                ft.Row(controls=[btn_batu_beradu]),
             ],
         ),
     )
