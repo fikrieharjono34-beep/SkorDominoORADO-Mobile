@@ -1,6 +1,8 @@
 import base64
+from datetime import datetime
 import math
 import os
+import random
 import struct
 import tempfile
 import wave
@@ -86,8 +88,8 @@ def extract_embedded_logo() -> str | None:
         return None
 
 
-# --- GENERATOR EFEK SUARA LOKAL (16-BIT PCM WAV UNTUK ANDROID) ---
-def _write_wav(filepath: str, samples: list[int], sample_rate: int = 44100):
+# --- GENERATOR EFEK SUARA & SUARA ORANG (WASIT INDONESIA 16-BIT WAV) ---
+def _write_wav(filepath: str, samples: list[int], sample_rate: int = 16000):
     if os.path.exists(filepath):
         return
     try:
@@ -101,27 +103,137 @@ def _write_wav(filepath: str, samples: list[int], sample_rate: int = 44100):
         pass
 
 
-def build_builtin_sfx() -> dict[str, str]:
-    sfx_dir = os.path.join(tempfile.gettempdir(), "orado_domino_sfx")
-    os.makedirs(sfx_dir, exist_ok=True)
-    sr = 44100
+def _biquad_coeffs(freq: float, bw: float, sr: int):
+    w0 = 2.0 * math.pi * freq / sr
+    alpha = math.sin(w0) * math.sinh(math.log(2.0) / 2.0 * (bw / max(1.0, freq)) * w0 / max(1e-6, math.sin(w0)))
+    b0 = alpha
+    b2 = -alpha
+    a0 = 1.0 + alpha
+    a1 = -2.0 * math.cos(w0)
+    a2 = 1.0 - alpha
+    return (b0 / a0, 0.0, b2 / a0, a1 / a0, a2 / a0)
 
-    # 1. Ketukan batu domino (55 ms)
+
+def _synthesize_indonesian_speech(phoneme_seq: str, sr: int = 16000) -> list[int]:
+    """Sintesis suara vokal forman bahasa Indonesia untuk pengumuman wasit offline."""
+    # Format: (F1, F2, F3, gain, mode) -> mode: 'V'=vokal, 'N'=nasal, 'R'=getar, 'S'=desis, 'P'=letup, ' '_spasi
+    table = {
+        "a": (740, 1180, 2450, 1.00, "V"),
+        "i": (290, 2240, 2950, 0.88, "V"),
+        "u": (320, 880, 2240, 0.90, "V"),
+        "e": (520, 1840, 2480, 0.92, "V"),
+        "@": (490, 1380, 2380, 0.82, "V"),
+        "o": (550, 860, 2410, 0.95, "V"),
+        "m": (260, 1050, 2200, 0.45, "N"),
+        "n": (270, 1350, 2300, 0.45, "N"),
+        "N": (280, 1150, 2250, 0.45, "N"),
+        "l": (360, 1300, 2480, 0.62, "V"),
+        "r": (420, 1450, 2350, 0.68, "R"),
+        "s": (4200, 5400, 6600, 0.50, "S"),
+        "p": (600, 1200, 2400, 0.35, "P"),
+        "t": (1800, 3200, 4500, 0.38, "P"),
+        "k": (1200, 2200, 3100, 0.38, "P"),
+        "b": (350, 1100, 2300, 0.45, "B"),
+        "d": (400, 1650, 2550, 0.45, "B"),
+        "j": (380, 2100, 2850, 0.52, "B"),
+    }
+
+    tokens = phoneme_seq.split()
+    total_tokens = max(1, len(tokens))
+    out: list[int] = []
+    rng = random.Random(42)
+
+    phase = 0.0
+    z1 = [0.0, 0.0, 0.0]
+    z2 = [0.0, 0.0, 0.0]
+
+    for idx, tok in enumerate(tokens):
+        if tok == "_":
+            out.extend([0] * int(sr * 0.075))
+            continue
+
+        spec = table.get(tok)
+        if not spec:
+            continue
+
+        f1, f2, f3, gain, mode = spec
+        if mode == "V":
+            dur = 0.095
+        elif mode in ("N", "R"):
+            dur = 0.068
+        elif mode == "S":
+            dur = 0.085
+        else:
+            dur = 0.052
+
+        n_samples = int(sr * dur)
+        c1 = _biquad_coeffs(f1, 95.0, sr)
+        c2 = _biquad_coeffs(f2, 130.0, sr)
+        c3 = _biquad_coeffs(f3, 180.0, sr)
+
+        progress = idx / total_tokens
+        base_pitch = 142.0 + 16.0 * math.sin(progress * math.pi) - 18.0 * (progress ** 2)
+
+        for i in range(n_samples):
+            t = i / sr
+            rel = i / max(1, n_samples)
+
+            if mode in ("P", "B") and rel < 0.55:
+                exc = (math.sin(phase * 2.0 * math.pi) * 0.08) if mode == "B" else 0.0
+            elif mode == "S":
+                exc = rng.uniform(-1.0, 1.0) * 0.65
+            elif mode in ("P", "B"):
+                burst_env = math.exp(-(rel - 0.55) * 18.0)
+                exc = rng.uniform(-1.0, 1.0) * 0.75 * burst_env
+            else:
+                f0 = base_pitch * (1.0 + 0.02 * math.sin(2.0 * math.pi * 5.0 * t))
+                phase += f0 / sr
+                if phase >= 1.0:
+                    phase -= 1.0
+                # Pulsa glotal kaya harmonik
+                glottal = (2.0 * phase - 1.0) - 0.45 * math.sin(2.0 * math.pi * phase)
+                if mode == "R":
+                    glottal *= (0.45 + 0.55 * abs(math.sin(2.0 * math.pi * 28.0 * t)))
+                exc = glottal * 0.55
+
+            # Filter 3 forman paralel
+            y_total = 0.0
+            for fi, (b0, b1, b2, a1, a2), weight in [
+                (0, c1, 1.00),
+                (1, c2, 0.72),
+                (2, c3, 0.42),
+            ]:
+                y = b0 * exc + z1[fi]
+                z1[fi] = b1 * exc - a1 * y + z2[fi]
+                z2[fi] = b2 * exc - a2 * y
+                y_total += y * weight
+
+            env = math.sin(math.pi * min(1.0, rel)) ** 0.35
+            sample_val = int(y_total * gain * env * 29000)
+            out.append(sample_val)
+
+    return out
+
+
+def build_all_audio() -> dict[str, str]:
+    sfx_dir = os.path.join(tempfile.gettempdir(), "orado_domino_sfx_v3")
+    os.makedirs(sfx_dir, exist_ok=True)
+    sr = 16000
+
+    # 1. Ketukan batu domino
     click_path = os.path.join(sfx_dir, "orado_click.wav")
-    click_len = int(sr * 0.055)
     click_samples = []
-    for i in range(click_len):
+    for i in range(int(sr * 0.055)):
         t = i / sr
         env = math.exp(-t * 85.0)
         val = (math.sin(2 * math.pi * 920 * t) * 0.65 + math.sin(2 * math.pi * 2150 * t) * 0.35) * env
         click_samples.append(int(val * 26000))
     _write_wav(click_path, click_samples, sr)
 
-    # 2. Nada peringatan penalti / undo / reset (220 ms)
+    # 2. Nada peringatan penalti / undo
     shake_path = os.path.join(sfx_dir, "orado_shake.wav")
-    shake_len = int(sr * 0.22)
     shake_samples = []
-    for i in range(shake_len):
+    for i in range(int(sr * 0.22)):
         t = i / sr
         pulse = 1.0 if (t < 0.085 or t > 0.115) else 0.15
         env = math.exp(-t * 9.0) * pulse
@@ -130,24 +242,42 @@ def build_builtin_sfx() -> dict[str, str]:
         shake_samples.append(int(val * 26000))
     _write_wav(shake_path, shake_samples, sr)
 
-    # 3. Fanfare kemenangan / pembuka (480 ms)
+    # 3. Fanfare pembuka / kemenangan
     win_path = os.path.join(sfx_dir, "orado_win.wav")
-    notes = [(523.25, 0.10), (659.25, 0.10), (783.99, 0.10), (1046.50, 0.18)]
     win_samples = []
-    for freq, dur in notes:
-        n_len = int(sr * dur)
-        for i in range(n_len):
+    for freq, dur in [(523.25, 0.10), (659.25, 0.10), (783.99, 0.10), (1046.50, 0.18)]:
+        for i in range(int(sr * dur)):
             t = i / sr
             env = math.exp(-t * 7.5)
             val = (math.sin(2 * math.pi * freq * t) * 0.75 + math.sin(2 * math.pi * (freq * 1.5) * t) * 0.25) * env
             win_samples.append(int(val * 25000))
     _write_wav(win_path, win_samples, sr)
 
-    return {
+    # 4. Suara Orang (Wasit Indonesia) untuk Penalti, Set Khusus, & Bonus
+    voice_scripts = {
+        "v_ringan": "p @ l a N g a r a n _ r i N a n",
+        "v_pen11": "p e n a l t i _ s @ b @ l a s _ p o i n",
+        "v_pen25": "p e n a l t i _ d u a _ p u l u h _ l i m a",
+        "v_pass50": "p a s _ p a l s u _ l i m a _ p u l u h _ p o i n",
+        "v_pass_kalah": "p a s _ p a l s u _ k a l a h _ s e t",
+        "v_apollo": "a p o l o _ m @ n a N _ d u a _ s e t",
+        "v_7balak": "t u j u h _ b a l a k _ s a h _ s @ r a t u s _ s a t u",
+        "v_2x": "d u a _ k a l i _ u j u N _ s a m a",
+        "v_balak50": "b a l a k _ s @ m p u r n a _ l i m a _ p u l u h",
+    }
+
+    paths = {
         "click": click_path,
         "shake": shake_path,
         "intro": win_path,
     }
+    for key, seq in voice_scripts.items():
+        v_path = os.path.join(sfx_dir, f"orado_{key}.wav")
+        if not os.path.exists(v_path):
+            _write_wav(v_path, _synthesize_indonesian_speech(seq, sr), sr)
+        paths[key] = v_path
+
+    return paths
 
 
 def main(page: ft.Page):
@@ -175,15 +305,23 @@ def main(page: ft.Page):
         "bonus_mode": "1x",  # "1x", "2x", "+50"
         "sound_on": True,
         "history": [],
+        "referee_notes": [],
     }
 
+    saved_matches: list[dict] = []
+
     STORAGE_KEY = "orado_domino_101_state_v2"
+    ARCHIVE_KEY = "orado_domino_101_saved_matches_v1"
 
     def load_state():
         try:
             saved = page.client_storage.get(STORAGE_KEY)
             if isinstance(saved, dict):
                 state.update(saved)
+            arch = page.client_storage.get(ARCHIVE_KEY)
+            if isinstance(arch, list):
+                saved_matches.clear()
+                saved_matches.extend(arch)
         except Exception:
             pass
 
@@ -193,22 +331,39 @@ def main(page: ft.Page):
         except Exception:
             pass
 
+    def save_archive():
+        try:
+            page.client_storage.set(ARCHIVE_KEY, saved_matches[:30])
+        except Exception:
+            pass
+
     load_state()
 
-    # --- SISTEM AUDIO FLET 1.x (flet-audio) ---
-    builtin_sfx = build_builtin_sfx()
+    # --- SISTEM AUDIO & SUARA WASIT (flet-audio) ---
+    all_audio_paths = build_all_audio()
     audio_players = {}
     AudioClass = getattr(fta, "Audio", None) if fta else None
     ReleaseMode = getattr(fta, "ReleaseMode", None) if fta else None
 
     if AudioClass:
-        for sound_key, asset_filename in [
-            ("intro", "intro_mlbb.wav"),
-            ("click", "ui_click.wav"),
-            ("shake", "ui_shake.wav"),
-        ]:
-            asset_disk_path = os.path.join("assets", asset_filename)
-            audio_src = asset_filename if os.path.exists(asset_disk_path) else builtin_sfx.get(sound_key, "")
+        asset_overrides = {
+            "intro": "intro_mlbb.wav",
+            "click": "ui_click.wav",
+            "shake": "ui_shake.wav",
+            "v_ringan": "voice_ringan.wav",
+            "v_pen11": "voice_penalti_11.wav",
+            "v_pen25": "voice_penalti_25.wav",
+            "v_pass50": "voice_pass_palsu_50.wav",
+            "v_pass_kalah": "voice_pass_palsu_kalah.wav",
+            "v_apollo": "voice_apollo.wav",
+            "v_7balak": "voice_7balak.wav",
+            "v_2x": "voice_2x.wav",
+            "v_balak50": "voice_balak50.wav",
+        }
+        for sound_key, fallback_path in all_audio_paths.items():
+            custom_name = asset_overrides.get(sound_key, "")
+            custom_disk = os.path.join("assets", custom_name) if custom_name else ""
+            audio_src = custom_name if (custom_disk and os.path.exists(custom_disk)) else fallback_path
             if audio_src:
                 try:
                     kwargs = {
@@ -278,6 +433,18 @@ def main(page: ft.Page):
             dlg.open = False
             page.update()
 
+    def show_toast(msg: str):
+        try:
+            sb = ft.SnackBar(content=ft.Text(msg, color=TEXT_PRIMARY), bgcolor=CARD_ACTIVE, duration=2000)
+            if hasattr(page, "show_snack_bar"):
+                page.show_snack_bar(sb)
+            else:
+                page.snack_bar = sb
+                sb.open = True
+                page.update()
+        except Exception:
+            pass
+
     # --- KOMPONEN LOGO HEADER ---
     embedded_logo_path = extract_embedded_logo()
     if embedded_logo_path:
@@ -312,7 +479,7 @@ def main(page: ft.Page):
 
     sound_btn = ft.IconButton(
         icon=get_icon("VOLUME_UP" if state.get("sound_on", True) else "VOLUME_OFF"),
-        tooltip="Suara On/Off",
+        tooltip="Suara Wasit & Efek On/Off",
         icon_color=EMERALD if state.get("sound_on", True) else TEXT_MUTED,
         on_click=None,
     )
@@ -329,7 +496,20 @@ def main(page: ft.Page):
         expand=True,
     )
 
+    ref_note_input = ft.TextField(
+        label="Catatan Wasit",
+        hint_text="Contoh: Meja 2 • Shuffle ulang 5 balak",
+        border_color=BORDER_COLOR,
+        focused_border_color=GOLD,
+        height=44,
+        text_size=12,
+        content_padding=pad_sym(10, 8),
+        expand=True,
+    )
+
+    ref_notes_column = ft.Column(spacing=5)
     history_column = ft.Column(spacing=6)
+    archive_btn_label = ft.Text("", size=12, weight=ft.FontWeight.BOLD, color=GOLD)
 
     # --- LOGIKA ATURAN RESMI ORADO ---
     def toggle_sound(e):
@@ -372,6 +552,212 @@ def main(page: ft.Page):
             },
         })
 
+    # --- LOGIKA SIMPAN & ARSIP RIWAYAT PERTANDINGAN ---
+    def archive_current_match(status_summary: str = "Disimpan Manual", sets_a_override: int | None = None, sets_b_override: int | None = None):
+        sa = state["sets_a"] if sets_a_override is None else sets_a_override
+        sb = state["sets_b"] if sets_b_override is None else sets_b_override
+        entry = {
+            "id": datetime.now().strftime("%Y%m%d%H%M%S%f"),
+            "timestamp": datetime.now().strftime("%d/%m/%Y • %H:%M"),
+            "format": state["match_format"],
+            "team_a": state["team_a"],
+            "team_b": state["team_b"],
+            "sets_a": sa,
+            "sets_b": sb,
+            "score_a": state["score_a"],
+            "score_b": state["score_b"],
+            "set_num": state["set_num"],
+            "status": status_summary,
+            "notes": list(state.get("referee_notes", [])),
+            "logs": [
+                {
+                    "team": state["team_a"] if h["team"] == "A" else state["team_b"],
+                    "points_str": h.get("points_str", ""),
+                    "label": h.get("label", ""),
+                }
+                for h in state.get("history", [])
+            ],
+        }
+        saved_matches.insert(0, entry)
+        if len(saved_matches) > 30:
+            del saved_matches[30:]
+        save_archive()
+
+    def handle_manual_save_match(e):
+        play_sfx("click")
+        archive_current_match(
+            status_summary=f"Disimpan di Set {state['set_num']} (Skor {state['score_a']}-{state['score_b']})"
+        )
+        refresh_ui()
+        show_toast("Riwayat pertandingan berhasil disimpan ke Arsip!")
+
+    def open_match_detail_dialog(match_item: dict):
+        lines = [
+            f"ORADO DOMINO 101 ({match_item.get('format', 'BO3')})",
+            f"Waktu: {match_item.get('timestamp', '-')}",
+            f"Pertandingan: {match_item.get('team_a')} vs {match_item.get('team_b')}",
+            f"Skor Set: {match_item.get('sets_a', 0)} - {match_item.get('sets_b', 0)}",
+            f"Skor Set Terakhir: {match_item.get('score_a', 0)} - {match_item.get('score_b', 0)}",
+            f"Status: {match_item.get('status', '-')}",
+            "",
+            "--- CATATAN WASIT ---",
+        ]
+        notes = match_item.get("notes", [])
+        if notes:
+            lines.extend([f"• {n}" for n in notes])
+        else:
+            lines.append("• (Tidak ada catatan wasit)")
+
+        lines.append("")
+        lines.append("--- LOG RONDE & SANKSI ---")
+        logs = match_item.get("logs", [])
+        if logs:
+            for idx, lg in enumerate(logs, start=1):
+                lines.append(f"{idx}. {lg.get('team')} | {lg.get('label')} ({lg.get('points_str')})")
+        else:
+            lines.append("• (Belum ada log poin)")
+
+        rekap_text = "\n".join(lines)
+        rekap_field = ft.TextField(
+            value=rekap_text,
+            multiline=True,
+            min_lines=8,
+            max_lines=14,
+            read_only=True,
+            text_size=11,
+            border_color=BORDER_COLOR,
+        )
+
+        detail_dlg = ft.AlertDialog(
+            modal=True,
+            bgcolor=CARD_BG,
+            title=ft.Text(
+                f"{match_item.get('team_a')} vs {match_item.get('team_b')}",
+                color=GOLD,
+                weight=ft.FontWeight.BOLD,
+                size=15,
+            ),
+            content=ft.Column(
+                tight=True,
+                spacing=8,
+                controls=[
+                    ft.Text("Tahan teks di bawah untuk menyalin rekap ke WhatsApp:", size=11, color=TEXT_MUTED),
+                    rekap_field,
+                ],
+            ),
+            actions=[
+                ft.TextButton("Tutup", on_click=lambda ev: close_dialog(detail_dlg)),
+            ],
+        )
+        open_dialog(detail_dlg)
+
+    def open_archive_dialog(e):
+        play_sfx("click")
+        archive_list_col = ft.Column(spacing=8, scroll=ft.ScrollMode.AUTO, height=340)
+
+        def rebuild_archive_list():
+            archive_list_col.controls.clear()
+            if not saved_matches:
+                archive_list_col.controls.append(
+                    ft.Text("Belum ada riwayat pertandingan yang disimpan.", size=12, color=TEXT_MUTED)
+                )
+            else:
+                for idx, m in enumerate(saved_matches):
+                    def make_del(index_to_del: int):
+                        def _del(ev):
+                            if 0 <= index_to_del < len(saved_matches):
+                                saved_matches.pop(index_to_del)
+                                save_archive()
+                                rebuild_archive_list()
+                                refresh_ui()
+                                page.update()
+                        return _del
+
+                    def make_view(item_data: dict):
+                        def _view(ev):
+                            close_dialog(arch_dlg)
+                            open_match_detail_dialog(item_data)
+                        return _view
+
+                    archive_list_col.controls.append(
+                        ft.Container(
+                            padding=10,
+                            border_radius=10,
+                            bgcolor=BG_DARK,
+                            border=border_all(1, BORDER_COLOR),
+                            content=ft.Column(
+                                spacing=4,
+                                controls=[
+                                    ft.Row(
+                                        alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                                        controls=[
+                                            ft.Text(
+                                                f"{m.get('team_a')} vs {m.get('team_b')}",
+                                                size=13,
+                                                weight=ft.FontWeight.BOLD,
+                                                color=GOLD,
+                                                expand=True,
+                                            ),
+                                            ft.Text(
+                                                f"SET {m.get('sets_a', 0)}-{m.get('sets_b', 0)}",
+                                                size=12,
+                                                weight=ft.FontWeight.BOLD,
+                                                color=EMERALD,
+                                            ),
+                                        ],
+                                    ),
+                                    ft.Text(
+                                        f"{m.get('timestamp')} • {m.get('format')} • {m.get('status')}",
+                                        size=11,
+                                        color=TEXT_MUTED,
+                                    ),
+                                    ft.Row(
+                                        alignment=ft.MainAxisAlignment.END,
+                                        spacing=6,
+                                        controls=[
+                                            ft.TextButton("Lihat Detail", on_click=make_view(m)),
+                                            ft.TextButton("Hapus", on_click=make_del(idx)),
+                                        ],
+                                    ),
+                                ],
+                            ),
+                        )
+                    )
+
+        rebuild_archive_list()
+
+        arch_dlg = ft.AlertDialog(
+            modal=True,
+            bgcolor=CARD_BG,
+            title=ft.Text(f"Arsip Pertandingan ({len(saved_matches)})", color=GOLD, weight=ft.FontWeight.BOLD, size=16),
+            content=archive_list_col,
+            actions=[
+                ft.TextButton("Tutup", on_click=lambda ev: close_dialog(arch_dlg)),
+            ],
+        )
+        open_dialog(arch_dlg)
+
+    # --- LOGIKA CATATAN WASIT ---
+    def add_referee_note(text_val: str):
+        cleaned = (text_val or "").strip()
+        if not cleaned:
+            return
+        stamp = f"[Set {state['set_num']} • R{state['round_num']}] {cleaned}"
+        state.setdefault("referee_notes", []).insert(0, stamp)
+        play_sfx("click")
+        save_state()
+        refresh_ui()
+
+    def handle_submit_ref_note(e):
+        val = ref_note_input.value
+        if (val or "").strip():
+            ref_note_input.value = ""
+            add_referee_note(val)
+
+    def handle_quick_ref_tag(tag_text: str):
+        active_name = state["team_a"] if state["selected_team"] == "A" else state["team_b"]
+        add_referee_note(f"{tag_text} ({active_name})")
+
     def select_team(team_code: str):
         state["selected_team"] = team_code
         play_sfx("click")
@@ -380,7 +766,12 @@ def main(page: ft.Page):
 
     def set_bonus_mode(mode: str):
         state["bonus_mode"] = mode
-        play_sfx("click")
+        if mode == "2x":
+            play_sfx("v_2x")
+        elif mode == "+50":
+            play_sfx("v_balak50")
+        else:
+            play_sfx("click")
         refresh_ui()
 
     def handle_set_victory(
@@ -388,8 +779,11 @@ def main(page: ft.Page):
         win_reason: str,
         allow_apollo: bool = True,
         force_apollo: bool = False,
+        play_default_fanfare: bool = True,
     ):
-        play_sfx("intro")
+        if play_default_fanfare:
+            play_sfx("intro")
+
         winner_name = state["team_a"] if winner_code == "A" else state["team_b"]
         loser_name = state["team_b"] if winner_code == "A" else state["team_a"]
         winner_score = state["score_a"] if winner_code == "A" else state["score_b"]
@@ -403,6 +797,9 @@ def main(page: ft.Page):
             and rounds_completed > 1
         )
 
+        if is_apollo and not force_apollo:
+            play_sfx("v_apollo")
+
         sets_earned = 2 if is_apollo else 1
         target_sets = get_target_sets()
 
@@ -415,6 +812,11 @@ def main(page: ft.Page):
             state["sets_a"] = projected_sets_a
             state["sets_b"] = projected_sets_b
             if is_match_over:
+                archive_current_match(
+                    status_summary=f"Selesai • Juara: {winner_name} ({projected_sets_a}-{projected_sets_b})",
+                    sets_a_override=projected_sets_a,
+                    sets_b_override=projected_sets_b,
+                )
                 state["score_a"] = 0
                 state["score_b"] = 0
                 state["sets_a"] = 0
@@ -426,6 +828,8 @@ def main(page: ft.Page):
                 state["major_a"] = 0
                 state["major_b"] = 0
                 state["history"] = []
+                state["referee_notes"] = []
+                show_toast(f"Match {winner_name} otomatis tersimpan ke Arsip!")
             else:
                 state["set_num"] += 1
                 state["score_a"] = 0
@@ -453,6 +857,7 @@ def main(page: ft.Page):
             state["major_a"] = 0
             state["major_b"] = 0
             state["history"] = []
+            state["referee_notes"] = []
             save_state()
             close_dialog(dlg)
             refresh_ui()
@@ -489,7 +894,7 @@ def main(page: ft.Page):
             actions=[
                 ft.TextButton("Reset 0-0", on_click=reset_match_now),
                 make_button(
-                    "Mulai Match Baru" if is_match_over else "Lanjut Set Berikutnya",
+                    "Simpan & Match Baru" if is_match_over else "Lanjut Set Berikutnya",
                     GOLD,
                     BG_DARK,
                     proceed_next,
@@ -506,7 +911,7 @@ def main(page: ft.Page):
 
         if mode == "2x":
             final_pts = base_points * 2
-            label = f"Ronde {state['round_num']} • 2x Ujung/Beradu ({base_points}×2)"
+            label = f"Ronde {state['round_num']} • 2x Ujung/Sama ({base_points}×2)"
         elif mode == "+50":
             final_pts = base_points + 50
             label = f"Ronde {state['round_num']} • Balak Sempurna ({base_points}+50)"
@@ -532,7 +937,7 @@ def main(page: ft.Page):
         elif state["score_b"] >= TARGET_SKOR:
             handle_set_victory("B", f"Mencapai {state['score_b']} Poin (Domino 101)", allow_apollo=True)
 
-    def apply_penalty(points: int, reason: str, ends_round: bool = False):
+    def apply_penalty(points: int, reason: str, voice_key: str, ends_round: bool = False):
         winner_team = state["selected_team"]
 
         record_snapshot(winner_team, f"+{points}", f"PENALTI: {reason}")
@@ -547,7 +952,7 @@ def main(page: ft.Page):
         if ends_round:
             state["round_num"] += 1
 
-        play_sfx("shake")
+        play_sfx(voice_key)
         save_state()
         refresh_ui()
 
@@ -564,7 +969,12 @@ def main(page: ft.Page):
                 refresh_ui()
             handle_set_victory(winner_team, "Lawan Akumulasi 3x Pelanggaran Berat (Pasal 14b.3)", allow_apollo=True)
         elif winner_score >= TARGET_SKOR:
-            handle_set_victory(winner_team, f"Mencapai {winner_score} Poin via Penalti ({reason})", allow_apollo=True)
+            handle_set_victory(
+                winner_team,
+                f"Mencapai {winner_score} Poin via Penalti ({reason})",
+                allow_apollo=True,
+                play_default_fanfare=False,
+            )
 
     def apply_minor_foul_on_opponent(e):
         winner_team = state["selected_team"]
@@ -583,7 +993,7 @@ def main(page: ft.Page):
                 state["minor_a"] = 0
                 state["major_a"] += 1
                 state["score_b"] += 11
-            play_sfx("shake")
+            play_sfx("v_pen11")
             save_state()
             refresh_ui()
 
@@ -599,18 +1009,24 @@ def main(page: ft.Page):
                     refresh_ui()
                 handle_set_victory(winner_team, "Lawan Akumulasi 3x Pelanggaran Berat", allow_apollo=True)
             elif winner_score >= TARGET_SKOR:
-                handle_set_victory(winner_team, "Mencapai 101 Poin dari Penalti 2x Ringan", allow_apollo=True)
+                handle_set_victory(
+                    winner_team,
+                    "Mencapai 101 Poin dari Penalti 2x Ringan",
+                    allow_apollo=True,
+                    play_default_fanfare=False,
+                )
         else:
             record_snapshot(offender_team, "WARN", f"Pelanggaran Ringan 1/2 ({offender_name})")
             if winner_team == "A":
                 state["minor_b"] += 1
             else:
                 state["minor_a"] += 1
-            play_sfx("shake")
+            play_sfx("v_ringan")
             save_state()
             refresh_ui()
 
     def trigger_apollo_win(e):
+        play_sfx("v_apollo")
         team = state["selected_team"]
         team_name = state["team_a"] if team == "A" else state["team_b"]
         opp_score = state["score_b"] if team == "A" else state["score_a"]
@@ -630,7 +1046,13 @@ def main(page: ft.Page):
             save_state()
             close_dialog(confirm_dlg)
             refresh_ui()
-            handle_set_victory(team, "Kemenangan Spesial APOLLO (+2 Set)", allow_apollo=True, force_apollo=True)
+            handle_set_victory(
+                team,
+                "Kemenangan Spesial APOLLO (+2 Set)",
+                allow_apollo=True,
+                force_apollo=True,
+                play_default_fanfare=False,
+            )
 
         confirm_dlg = ft.AlertDialog(
             modal=True,
@@ -649,6 +1071,7 @@ def main(page: ft.Page):
         open_dialog(confirm_dlg)
 
     def trigger_seven_balak_win(e):
+        play_sfx("v_7balak")
         team = state["selected_team"]
         team_name = state["team_a"] if team == "A" else state["team_b"]
 
@@ -661,7 +1084,12 @@ def main(page: ft.Page):
             save_state()
             close_dialog(confirm_dlg)
             refresh_ui()
-            handle_set_victory(team, "7 Balak / 1 Seri Lengkap (Skor Digenapkan 101, Tanpa Apollo)", allow_apollo=False)
+            handle_set_victory(
+                team,
+                "7 Balak / 1 Seri Lengkap (Skor Digenapkan 101, Tanpa Apollo)",
+                allow_apollo=False,
+                play_default_fanfare=False,
+            )
 
         confirm_dlg = ft.AlertDialog(
             modal=True,
@@ -681,6 +1109,7 @@ def main(page: ft.Page):
         open_dialog(confirm_dlg)
 
     def trigger_false_pass_under_3(e):
+        play_sfx("v_pass_kalah")
         winner_team = state["selected_team"]
         winner_name = state["team_a"] if winner_team == "A" else state["team_b"]
         loser_name = state["team_b"] if winner_team == "A" else state["team_a"]
@@ -704,7 +1133,12 @@ def main(page: ft.Page):
             save_state()
             close_dialog(fp_dlg)
             refresh_ui()
-            handle_set_victory(winner_team, f"Lawan Pass Palsu Sisa ≤3 Batu ({rule_desc})", allow_apollo=True)
+            handle_set_victory(
+                winner_team,
+                f"Lawan Pass Palsu Sisa ≤3 Batu ({rule_desc})",
+                allow_apollo=True,
+                play_default_fanfare=False,
+            )
 
         fp_dlg = ft.AlertDialog(
             modal=True,
@@ -834,6 +1268,7 @@ def main(page: ft.Page):
             state["major_a"] = 0
             state["major_b"] = 0
             state["history"] = []
+            state["referee_notes"] = []
             play_sfx("shake")
             save_state()
             close_dialog(rst_dlg)
@@ -894,7 +1329,7 @@ def main(page: ft.Page):
     active_team_banner = ft.Text("", size=12, weight=ft.FontWeight.BOLD, color=GOLD)
 
     btn_bonus_1x = make_button("1x Normal", EMERALD, BG_DARK, lambda e: set_bonus_mode("1x"), expand=True, height=36)
-    btn_bonus_2x = make_button("2x Ujung/Beradu", CARD_ACTIVE, TEXT_PRIMARY, lambda e: set_bonus_mode("2x"), expand=True, height=36)
+    btn_bonus_2x = make_button("2x Ujung/Sama", CARD_ACTIVE, TEXT_PRIMARY, lambda e: set_bonus_mode("2x"), expand=True, height=36)
     btn_bonus_50 = make_button("+50 Balak Semp.", CARD_ACTIVE, TEXT_PRIMARY, lambda e: set_bonus_mode("+50"), expand=True, height=36)
 
     def refresh_ui():
@@ -937,6 +1372,46 @@ def main(page: ft.Page):
         btn_bonus_50.bgcolor = PURPLE_SPECIAL if bm == "+50" else CARD_ACTIVE
         btn_bonus_50.color = TEXT_PRIMARY
 
+        # Render Catatan Wasit
+        ref_notes_column.controls.clear()
+        notes = state.get("referee_notes", [])
+        if not notes:
+            ref_notes_column.controls.append(
+                ft.Text("Belum ada catatan wasit di pertandingan ini.", size=11, color=TEXT_MUTED)
+            )
+        else:
+            for n_idx, note_txt in enumerate(notes):
+                def make_remove_note(del_i: int):
+                    def _rm(ev):
+                        if 0 <= del_i < len(state.get("referee_notes", [])):
+                            state["referee_notes"].pop(del_i)
+                            save_state()
+                            refresh_ui()
+                    return _rm
+
+                ref_notes_column.controls.append(
+                    ft.Container(
+                        padding=pad_sym(10, 6),
+                        border_radius=8,
+                        bgcolor=BG_DARK,
+                        border=border_all(1, BORDER_COLOR),
+                        content=ft.Row(
+                            alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                            controls=[
+                                ft.Text(note_txt, size=11, color=TEXT_PRIMARY, expand=True),
+                                ft.IconButton(
+                                    icon=get_icon("CLOSE"),
+                                    icon_size=15,
+                                    icon_color=TEXT_MUTED,
+                                    tooltip="Hapus catatan",
+                                    on_click=make_remove_note(n_idx),
+                                ),
+                            ],
+                        ),
+                    )
+                )
+
+        # Render Riwayat Ronde & Sanksi
         history_column.controls.clear()
         if not state["history"]:
             history_column.controls.append(
@@ -978,6 +1453,7 @@ def main(page: ft.Page):
                     )
                 )
 
+        archive_btn_label.value = f"📂 Arsip Riwayat Pertandingan ({len(saved_matches)} Tersimpan)"
         page.update()
 
     # --- TOMBOL AKSI CEPAT ---
@@ -1088,7 +1564,7 @@ def main(page: ft.Page):
                             "+11 (30dtk/Berat)",
                             "#3B181E",
                             RED_ALERT,
-                            lambda e: apply_penalty(11, "Waktu 30dtk / Pelanggaran Berat (+11)"),
+                            lambda e: apply_penalty(11, "Waktu 30dtk / Pelanggaran Berat (+11)", "v_pen11"),
                             expand=True,
                             height=40,
                         ),
@@ -1101,7 +1577,7 @@ def main(page: ft.Page):
                             "+25 (Salah/Dahulu)",
                             "#3B181E",
                             RED_ALERT,
-                            lambda e: apply_penalty(25, "Batu Salah / Mendahului Giliran (+25)"),
+                            lambda e: apply_penalty(25, "Batu Salah / Mendahului Giliran (+25)", "v_pen25"),
                             expand=True,
                             height=40,
                         ),
@@ -1109,7 +1585,7 @@ def main(page: ft.Page):
                             "+50 (Pass Palsu ≥4)",
                             "#3B181E",
                             RED_ALERT,
-                            lambda e: apply_penalty(50, "Pass Palsu Sisa ≥4 Batu (+50)", ends_round=True),
+                            lambda e: apply_penalty(50, "Pass Palsu Sisa ≥4 Batu (+50)", "v_pass50", ends_round=True),
                             expand=True,
                             height=40,
                         ),
@@ -1161,6 +1637,66 @@ def main(page: ft.Page):
         ),
     )
 
+    referee_panel = ft.Container(
+        padding=12,
+        border_radius=14,
+        bgcolor=CARD_BG,
+        border=border_all(1, BORDER_COLOR),
+        content=ft.Column(
+            spacing=8,
+            controls=[
+                ft.Text("📋 CATATAN WASIT RESMI", size=11, weight=ft.FontWeight.BOLD, color=GOLD),
+                ft.Row(
+                    spacing=6,
+                    controls=[
+                        make_button(
+                            "Shuffle Ulang",
+                            CARD_ACTIVE,
+                            TEXT_PRIMARY,
+                            lambda e: handle_quick_ref_tag("Shuffle Ulang (5/6 Balak • Pasal 8c)"),
+                            expand=True,
+                            height=34,
+                        ),
+                        make_button(
+                            "Tukar Kursi",
+                            CARD_ACTIVE,
+                            TEXT_PRIMARY,
+                            lambda e: handle_quick_ref_tag("Tukar Tempat Duduk (Pasal 7b)"),
+                            expand=True,
+                            height=34,
+                        ),
+                        make_button(
+                            "Ganti Pemain",
+                            CARD_ACTIVE,
+                            TEXT_PRIMARY,
+                            lambda e: handle_quick_ref_tag("Pergantian Pemain (Pasal 1b)"),
+                            expand=True,
+                            height=34,
+                        ),
+                    ],
+                ),
+                ft.Row(
+                    spacing=8,
+                    controls=[
+                        ref_note_input,
+                        make_button("CATAT", GOLD, BG_DARK, handle_submit_ref_note, height=44),
+                    ],
+                ),
+                ref_notes_column,
+            ],
+        ),
+    )
+
+    archive_bar = ft.Container(
+        padding=pad_sym(12, 10),
+        border_radius=10,
+        bgcolor=CARD_ACTIVE,
+        border=border_all(1, GOLD),
+        alignment=align_center(),
+        on_click=open_archive_dialog,
+        content=archive_btn_label,
+    )
+
     history_panel = ft.Container(
         padding=12,
         border_radius=14,
@@ -1173,14 +1709,25 @@ def main(page: ft.Page):
                     alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
                     controls=[
                         ft.Text("RIWAYAT RONDE & SANKSI", size=12, weight=ft.FontWeight.BOLD, color=TEXT_PRIMARY),
-                        ft.TextButton(
-                            "Undo Terakhir",
-                            icon=get_icon("UNDO"),
-                            on_click=undo_last,
+                        ft.Row(
+                            spacing=2,
+                            controls=[
+                                ft.TextButton(
+                                    "Undo",
+                                    icon=get_icon("UNDO"),
+                                    on_click=undo_last,
+                                ),
+                                ft.TextButton(
+                                    "Simpan Match",
+                                    icon=get_icon("SAVE"),
+                                    on_click=handle_manual_save_match,
+                                ),
+                            ],
                         ),
                     ],
                 ),
                 history_column,
+                archive_bar,
             ],
         ),
     )
@@ -1196,6 +1743,7 @@ def main(page: ft.Page):
                 input_panel,
                 penalty_panel,
                 special_panel,
+                referee_panel,
                 history_panel,
             ],
         ),
@@ -1210,4 +1758,3 @@ if __name__ == "__main__":
         ft.run(main, assets_dir="assets")
     else:
         ft.app(target=main, assets_dir="assets")
-        
