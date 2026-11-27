@@ -30,8 +30,10 @@ jobs:
           pip install -r requirements.txt
 
       - name: Build Android APK (arm64-v8a only)
+        env:
+          GRADLE_OPTS: "-Dorg.gradle.jvmargs=-Xmx4096m -XX:MaxMetaspaceSize=1024m"
         run: |
-          printf "y\ny\ny\ny\ny\n" | flet build apk --arch arm64-v8a --project "SkorDominoORADO" --product "ORADO Domino 101" --org "id.oradocirebon.domino" --build-version "2026.1.0"
+          printf "y\ny\ny\ny\ny\n" | flet build apk --verbose --arch arm64-v8a --project "SkorDominoORADO" --product "ORADO Domino 101" --org "id.oradocirebon.domino" --build-version "2026.1.0"
 
       - name: Upload APK Artifact
         uses: actions/upload-artifact@v4
