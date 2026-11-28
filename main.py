@@ -6,6 +6,7 @@ import os
 import random
 import struct
 import tempfile
+import traceback
 import wave
 import flet as ft
 
@@ -405,10 +406,13 @@ def main(page: ft.Page):
 
     def load_state():
         try:
-            saved = page.client_storage.get(STORAGE_KEY)
+            cs = getattr(page, "client_storage", None)
+            if not cs:
+                return
+            saved = cs.get(STORAGE_KEY)
             if isinstance(saved, dict):
                 state.update(saved)
-            arch = page.client_storage.get(ARCHIVE_KEY)
+            arch = cs.get(ARCHIVE_KEY)
             if isinstance(arch, list):
                 saved_matches.clear()
                 saved_matches.extend(arch)
@@ -419,20 +423,19 @@ def main(page: ft.Page):
     def save_state():
         normalize_match_bounds()
         try:
-            page.client_storage.set(STORAGE_KEY, state)
+            cs = getattr(page, "client_storage", None)
+            if cs:
+                cs.set(STORAGE_KEY, state)
         except Exception:
             pass
 
     def save_archive():
         try:
-            page.client_storage.set(ARCHIVE_KEY, saved_matches[:30])
+            cs = getattr(page, "client_storage", None)
+            if cs:
+                cs.set(ARCHIVE_KEY, saved_matches[:30])
         except Exception:
             pass
-
-    load_state()
-
-    if "sound_mode" not in state:
-        state["sound_mode"] = "all" if state.get("sound_on", True) else "mute"
 
     def bind_typing_guard(tf: ft.TextField):
         orig_focus = tf.on_focus
@@ -495,55 +498,49 @@ def main(page: ft.Page):
     AudioClass = getattr(fta, "Audio", None) if fta else None
     ReleaseMode = getattr(fta, "ReleaseMode", None) if fta else None
 
-    if AudioClass:
-        for sound_key, wav_path in chime_paths.items():
-            try:
-                kwargs = {
-                    "src": wav_path,
-                    "autoplay": (sound_key == "intro" and state.get("sound_mode") == "all"),
-                    "volume": 1.0,
-                }
-                if ReleaseMode and hasattr(ReleaseMode, "STOP"):
-                    kwargs["release_mode"] = ReleaseMode.STOP
-                player = AudioClass(**kwargs)
-                if hasattr(page, "services"):
-                    page.services.append(player)
-                else:
-                    page.overlay.append(player)
-                audio_players[sound_key] = player
-            except Exception:
-                pass
+    def _attach_audio(key: str, src_path: str, autoplay: bool = False):
+        if not AudioClass:
+            return
+        try:
+            kwargs = {
+                "src": src_path,
+                "autoplay": autoplay,
+                "volume": 1.0,
+            }
+            if ReleaseMode and hasattr(ReleaseMode, "STOP"):
+                kwargs["release_mode"] = ReleaseMode.STOP
+            player = AudioClass(**kwargs)
+            if hasattr(page, "services"):
+                page.services.append(player)
+            else:
+                page.overlay.append(player)
+            audio_players[key] = player
+        except Exception:
+            pass
 
-        voice_assets = {
-            "v_ringan": "voice_ringan.mp3",
-            "v_pen11": "voice_penalti_11.mp3",
-            "v_pen25": "voice_penalti_25.mp3",
-            "v_pass50": "voice_pass_palsu_50.mp3",
-            "v_pass_kalah": "voice_pass_palsu_kalah.mp3",
-            "v_apollo": "voice_apollo.mp3",
-            "v_7balak": "voice_7balak.mp3",
-            "v_2x": "voice_2x.mp3",
-            "v_balak50": "voice_balak50.mp3",
-            "v_beradu": "voice_beradu.mp3",
-            "v_beradu_menang": "voice_beradu_menang.mp3",
-            "v_beradu_kalah": "voice_beradu_kalah.mp3",
-            "v_beradu_seri": "voice_beradu_seri.mp3",
-            "v_waktu_habis": "voice_waktu_habis.mp3",
-            "v_wo": "voice_wo.mp3",
-        }
-        for v_key, asset_name in voice_assets.items():
-            try:
-                kwargs = {"src": asset_name, "autoplay": False, "volume": 1.0}
-                if ReleaseMode and hasattr(ReleaseMode, "STOP"):
-                    kwargs["release_mode"] = ReleaseMode.STOP
-                player = AudioClass(**kwargs)
-                if hasattr(page, "services"):
-                    page.services.append(player)
-                else:
-                    page.overlay.append(player)
-                audio_players[v_key] = player
-            except Exception:
-                pass
+    for sound_key, wav_path in chime_paths.items():
+        if os.path.exists(wav_path):
+            _attach_audio(sound_key, wav_path, autoplay=False)
+
+    voice_assets = {
+        "v_ringan": "voice_ringan.mp3",
+        "v_pen11": "voice_penalti_11.mp3",
+        "v_pen25": "voice_penalti_25.mp3",
+        "v_pass50": "voice_pass_palsu_50.mp3",
+        "v_pass_kalah": "voice_pass_palsu_kalah.mp3",
+        "v_apollo": "voice_apollo.mp3",
+        "v_7balak": "voice_7balak.mp3",
+        "v_2x": "voice_2x.mp3",
+        "v_balak50": "voice_balak50.mp3",
+        "v_beradu": "voice_beradu.mp3",
+        "v_beradu_menang": "voice_beradu_menang.mp3",
+        "v_beradu_kalah": "voice_beradu_kalah.mp3",
+        "v_beradu_seri": "voice_beradu_seri.mp3",
+        "v_waktu_habis": "voice_waktu_habis.mp3",
+        "v_wo": "voice_wo.mp3",
+    }
+    for v_key, asset_name in voice_assets.items():
+        _attach_audio(v_key, asset_name, autoplay=False)
 
     async def _play_sound_async(player):
         try:
@@ -2712,245 +2709,255 @@ def main(page: ft.Page):
             sub_txt.color = TEXT_MUTED
 
     def refresh_ui():
-        normalize_match_bounds()
-        locked = is_match_locked()
-        awaiting_set = bool(state.get("awaiting_next_set")) and not state.get("match_finished")
-        fmt_label = "FINAL BO5" if state["match_format"] == "BO5" else "REGULER BO3"
-        tbl = state.get("table_no", "MEJA 01")
-        stg = state.get("stage_name", "PENYISIHAN")
-        lock_tag = " • 🔒 SAH" if locked else (" • ⏸ TUNGGU SET" if awaiting_set else "")
-        match_meta_badge.value = f"{tbl} • {stg} • {fmt_label} • SET {state['set_num']} ({state['sets_a']}-{state['sets_b']}){lock_tag}"
-
-        balak_str = get_opening_balak(state["round_num"])
-        round_balak_text.value = f"Ronde {state['round_num']} • {balak_str}"
-
-        holder_name = state["team_a"] if state.get("opener_team", "A") == "A" else state["team_b"]
-        opener_badge_text.value = f"🀄 {balak_str}: {holder_name}"
-        opener_badge_text.color = RED_ALERT if state.get("opener_team", "A") == "A" else BLUE_TEAM
-
-        next_set_banner.visible = awaiting_set
-        set_button_label(btn_start_next_set_banner, f"▶ Mulai Set {state['set_num']}")
-        next_set_banner_text.value = (
-            f"⏸ Set {state['set_num']} siap • {balak_str}: {holder_name}. "
-            f"Klik mulai, lalu yang punya {balak_str} turunkan batunya."
-        )
-
-        score_cards_row.controls = [team_b_card, team_a_card] if state.get("swap_sides") else [team_a_card, team_b_card]
-
-        if state.get("dispute_active"):
-            timer_state["running"] = False
-            dispute_banner.visible = True
-            dispute_banner_text.value = f"⚖️ SENGKETA AKTIF — {state.get('dispute_info', '')}"
-            set_button_label(dispute_header_btn, "⚖️ Pending!")
-            dispute_header_btn.bgcolor = RED_ALERT
-            dispute_header_btn.color = TEXT_PRIMARY
-        else:
-            dispute_banner.visible = False
-            set_button_label(dispute_header_btn, "⚖️ Protes")
-            dispute_header_btn.bgcolor = CARD_ACTIVE
-            dispute_header_btn.color = AMBER
-
-        sm = state.get("sound_mode", "all")
-        if sm == "all":
-            set_button_label(sound_mode_btn, "🔊 Meriah")
-            sound_mode_btn.color = EMERALD
-        elif sm == "voice":
-            set_button_label(sound_mode_btn, "🎙️ Wasit")
-            sound_mode_btn.color = GOLD
-        else:
-            set_button_label(sound_mode_btn, "🔇 Hening")
-            sound_mode_btn.color = TEXT_MUTED
-
-        team_a_name_text.value = state["team_a"]
-        team_b_name_text.value = state["team_b"]
-        pa = (state.get("players_a") or "").strip()
-        pb = (state.get("players_b") or "").strip()
-        players_a_subtext.value = f"Pemain: {pa}" if pa else "Pasangan: -"
-        players_b_subtext.value = f"Pemain: {pb}" if pb else "Pasangan: -"
-
-        score_a_text.value = str(state["score_a"])
-        score_b_text.value = str(state["score_b"])
-
-        st_a_txt, st_a_col = get_status_info(state["score_a"])
-        st_b_txt, st_b_col = get_status_info(state["score_b"])
-        status_a_text.value = st_a_txt
-        status_a_text.color = st_a_col
-        status_b_text.value = st_b_txt
-        status_b_text.color = st_b_col
-
-        foul_a_text.value = f"Ringan {state['minor_a']}/2 • Berat {state['major_a']}/3"
-        foul_a_text.color = RED_ALERT if state["major_a"] >= 3 else AMBER
-        foul_b_text.value = f"Ringan {state['minor_b']}/2 • Berat {state['major_b']}/3"
-        foul_b_text.color = RED_ALERT if state["major_b"] >= 3 else AMBER
-
-        is_a = state["selected_team"] == "A"
-        team_a_card.bgcolor = CARD_ACTIVE if is_a else CARD_BG
-        team_a_card.border = border_all(2, GOLD if is_a else BORDER_COLOR)
-        team_b_card.bgcolor = CARD_ACTIVE if not is_a else CARD_BG
-        team_b_card.border = border_all(2, GOLD if not is_a else BORDER_COLOR)
-
-        active_name = state["team_a"] if is_a else state["team_b"]
-        opp_name = state["team_b"] if is_a else state["team_a"]
-
-        if locked:
-            active_team_banner.value = "🔒 TERKUNCI (SAH 3/3) — Klik 'Match Baru (0-0)'"
-            active_team_banner.color = EMERALD
-        elif awaiting_set:
-            active_team_banner.value = f"⏸ MENUNGGU MULAI SET {state['set_num']}"
-            active_team_banner.color = GOLD
-        else:
-            active_team_banner.value = f"Tim Aktif: {active_name}"
-            active_team_banner.color = GOLD
-
-        penalty_target_banner.value = f"⚠️ PELANGGAR / WO: {active_name} → POIN KE {opp_name}"
-
-        bm = state["bonus_mode"]
-        btn_bonus_1x.bgcolor = EMERALD if bm == "1x" else CARD_ACTIVE
-        btn_bonus_1x.color = BG_DARK if bm == "1x" else TEXT_PRIMARY
-        btn_bonus_2x.bgcolor = GOLD if bm == "2x" else CARD_ACTIVE
-        btn_bonus_2x.color = BG_DARK if bm == "2x" else TEXT_PRIMARY
-        btn_bonus_50.bgcolor = PURPLE_SPECIAL if bm == "+50" else CARD_ACTIVE
-        btn_bonus_50.color = TEXT_PRIMARY
-
-        update_timer_ui()
-
-        set_records_column.controls.clear()
-        s_recs = state.get("set_records", [])
-        if not s_recs:
-            set_records_column.controls.append(ft.Text(f"Set {state['set_num']} berjalan ({state['score_a']} - {state['score_b']}).", size=11, color=TEXT_MUTED))
-        else:
-            for sr_item in s_recs:
-                set_records_column.controls.append(
-                    ft.Container(
-                        padding=pad_sym(10, 5),
-                        border_radius=7,
-                        bgcolor=BG_DARK,
-                        border=border_all(1, BORDER_COLOR),
-                        content=ft.Row(
-                            alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
-                            controls=[
-                                ft.Text(f"Set {sr_item.get('set')}: {sr_item.get('score_a')} - {sr_item.get('score_b')}", size=11, weight=ft.FontWeight.BOLD, color=TEXT_PRIMARY),
-                                ft.Text(f"🏆 {sr_item.get('winner')}", size=11, weight=ft.FontWeight.BOLD, color=EMERALD),
-                            ],
-                        ),
-                    )
-                )
-
-        ref_notes_column.controls.clear()
-        notes = state.get("referee_notes", [])
-        if not notes:
-            ref_notes_column.controls.append(ft.Text("Belum ada catatan wasit.", size=11, color=TEXT_MUTED))
-        else:
-            for n_idx, note_txt in enumerate(notes):
-                def make_remove_note(del_i: int):
-                    def _rm(ev):
-                        if 0 <= del_i < len(state.get("referee_notes", [])):
-                            state["referee_notes"].pop(del_i)
-                            save_state()
-                            refresh_ui()
-                    return _rm
-
-                ref_notes_column.controls.append(
-                    ft.Container(
-                        padding=pad_sym(8, 4),
-                        border_radius=8,
-                        bgcolor=BG_DARK,
-                        border=border_all(1, BORDER_COLOR),
-                        content=ft.Row(
-                            alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
-                            controls=[
-                                ft.Text(note_txt, size=11, color=TEXT_PRIMARY, expand=True),
-                                ft.IconButton(icon=get_icon("CLOSE"), icon_size=14, icon_color=TEXT_MUTED, on_click=make_remove_note(n_idx)),
-                            ],
-                        ),
-                    )
-                )
-
-        history_column.controls.clear()
-        if not state["history"]:
-            history_column.controls.append(ft.Text("Belum ada catatan poin di set ini.", size=11, color=TEXT_MUTED))
-        else:
-            total_items = len(state["history"])
-            for idx, item in enumerate(reversed(state["history"])):
-                item_no = total_items - idx
-                t_hms = f"[{item.get('time')}] " if item.get("time") else ""
-                t_name = state["team_a"] if item["team"] == "A" else state["team_b"]
-                pts_str = item.get("points_str", "")
-                lbl = item.get("label", "")
-                tr_txt = f" ({item.get('transition')})" if item.get("transition") else ""
-                if any(k in lbl for k in ("PELANGGARAN", "Pass Palsu", "Ringan", "DISKUALIFIKASI", "PROTES", "WO (")):
-                    badge_col = RED_ALERT
-                elif any(k in lbl for k in ("APOLLO", "BALAK", "Sempurna")):
-                    badge_col = PURPLE_SPECIAL
-                elif "Beradu" in lbl:
-                    badge_col = GOLD
-                else:
-                    badge_col = EMERALD
-
-                history_column.controls.append(
-                    ft.Container(
-                        padding=pad_sym(8, 5),
-                        border_radius=8,
-                        bgcolor=BG_DARK,
-                        border=border_all(1, BORDER_COLOR),
-                        content=ft.Row(
-                            alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
-                            controls=[
-                                ft.Text(f"#{item_no} {t_hms}{t_name} • {lbl}{tr_txt}", size=11, color=TEXT_PRIMARY, expand=True),
-                                ft.Text(pts_str, size=11, weight=ft.FontWeight.BOLD, color=badge_col),
-                            ],
-                        ),
-                    )
-                )
-
-        archive_btn_label.value = f"📂 Arsip ({len(saved_matches)})"
-
-        ref_name_field.value = state.get("referee_name", "")
-        red_rep_field.value = state.get("red_rep_name", "")
-        blue_rep_field.value = state.get("blue_rep_name", "")
-
-        ref_reject_reason_field.value = state.get("referee_reject_reason", "")
-        red_reject_reason_field.value = state.get("red_reject_reason", "")
-        blue_reject_reason_field.value = state.get("blue_reject_reason", "")
-
-        red_team_label_text.value = f"● MERAH ({state['team_a']})"
-        blue_team_label_text.value = f"● BIRU ({state['team_b']})"
-
-        finish_tag = " [SELESAI]" if state.get("match_finished") else ""
-        approval_summary_text.value = (
-            f"Hasil{finish_tag}: {state['team_a']} vs {state['team_b']} • "
-            f"Set ({state['sets_a']}-{state['sets_b']}) • Poin ({state['score_a']}-{state['score_b']})"
-        )
-
-        ref_dec = state.get("referee_decision", "")
-        red_dec = state.get("red_decision", "")
-        blue_dec = state.get("blue_decision", "")
-
-        _update_party_buttons(ref_dec, state.get("approve_referee_time", ""), btn_approve_ref, btn_reject_ref, ref_reject_reason_field, ref_approve_subtext, "Wasit")
-        _update_party_buttons(red_dec, state.get("approve_red_time", ""), btn_approve_red, btn_reject_red, red_reject_reason_field, red_approve_subtext, "Merah")
-        _update_party_buttons(blue_dec, state.get("approve_blue_time", ""), btn_approve_blue, btn_reject_blue, blue_reject_reason_field, blue_approve_subtext, "Biru")
-
-        decisions = [ref_dec, red_dec, blue_dec]
-        approved_count = decisions.count("setuju")
-        rejected_count = decisions.count("tidak_setuju")
-
-        if approved_count == 3:
-            approval_status_banner.value = "🔒 SAH & TERKUNCI (3/3 Setuju)"
-            approval_status_banner.color = EMERALD
-            approval_panel.border = border_all(2, EMERALD)
-        elif rejected_count > 0:
-            approval_status_banner.value = f"⚠️ KEBERATAN (Setuju {approved_count}/3 • Tolak {rejected_count}/3)"
-            approval_status_banner.color = RED_ALERT
-            approval_panel.border = border_all(2, RED_ALERT)
-        else:
-            approval_status_banner.value = f"⏳ Pengesahan: {approved_count}/3 Setuju"
-            approval_status_banner.color = AMBER
-            approval_panel.border = border_all(1, GOLD if state.get("match_finished") else BORDER_COLOR)
-
         try:
+            normalize_match_bounds()
+            locked = is_match_locked()
+            awaiting_set = bool(state.get("awaiting_next_set")) and not state.get("match_finished")
+            fmt_label = "FINAL BO5" if state["match_format"] == "BO5" else "REGULER BO3"
+            tbl = state.get("table_no", "MEJA 01")
+            stg = state.get("stage_name", "PENYISIHAN")
+            lock_tag = " • 🔒 SAH" if locked else (" • ⏸ TUNGGU SET" if awaiting_set else "")
+            match_meta_badge.value = f"{tbl} • {stg} • {fmt_label} • SET {state['set_num']} ({state['sets_a']}-{state['sets_b']}){lock_tag}"
+
+            balak_str = get_opening_balak(state["round_num"])
+            round_balak_text.value = f"Ronde {state['round_num']} • {balak_str}"
+
+            holder_name = state["team_a"] if state.get("opener_team", "A") == "A" else state["team_b"]
+            opener_badge_text.value = f"🀄 {balak_str}: {holder_name}"
+            opener_badge_text.color = RED_ALERT if state.get("opener_team", "A") == "A" else BLUE_TEAM
+
+            next_set_banner.visible = awaiting_set
+            set_button_label(btn_start_next_set_banner, f"▶ Mulai Set {state['set_num']}")
+            next_set_banner_text.value = (
+                f"⏸ Set {state['set_num']} siap • {balak_str}: {holder_name}. "
+                f"Klik mulai, lalu yang punya {balak_str} turunkan batunya."
+            )
+
+            score_cards_row.controls = [team_b_card, team_a_card] if state.get("swap_sides") else [team_a_card, team_b_card]
+
+            if state.get("dispute_active"):
+                timer_state["running"] = False
+                dispute_banner.visible = True
+                dispute_banner_text.value = f"⚖️ SENGKETA AKTIF — {state.get('dispute_info', '')}"
+                set_button_label(dispute_header_btn, "⚖️ Pending!")
+                dispute_header_btn.bgcolor = RED_ALERT
+                dispute_header_btn.color = TEXT_PRIMARY
+            else:
+                dispute_banner.visible = False
+                set_button_label(dispute_header_btn, "⚖️ Protes")
+                dispute_header_btn.bgcolor = CARD_ACTIVE
+                dispute_header_btn.color = AMBER
+
+            sm = state.get("sound_mode", "all")
+            if sm == "all":
+                set_button_label(sound_mode_btn, "🔊 Meriah")
+                sound_mode_btn.color = EMERALD
+            elif sm == "voice":
+                set_button_label(sound_mode_btn, "🎙️ Wasit")
+                sound_mode_btn.color = GOLD
+            else:
+                set_button_label(sound_mode_btn, "🔇 Hening")
+                sound_mode_btn.color = TEXT_MUTED
+
+            team_a_name_text.value = state["team_a"]
+            team_b_name_text.value = state["team_b"]
+            pa = (state.get("players_a") or "").strip()
+            pb = (state.get("players_b") or "").strip()
+            players_a_subtext.value = f"Pemain: {pa}" if pa else "Pasangan: -"
+            players_b_subtext.value = f"Pemain: {pb}" if pb else "Pasangan: -"
+
+            score_a_text.value = str(state["score_a"])
+            score_b_text.value = str(state["score_b"])
+
+            st_a_txt, st_a_col = get_status_info(state["score_a"])
+            st_b_txt, st_b_col = get_status_info(state["score_b"])
+            status_a_text.value = st_a_txt
+            status_a_text.color = st_a_col
+            status_b_text.value = st_b_txt
+            status_b_text.color = st_b_col
+
+            foul_a_text.value = f"Ringan {state['minor_a']}/2 • Berat {state['major_a']}/3"
+            foul_a_text.color = RED_ALERT if state["major_a"] >= 3 else AMBER
+            foul_b_text.value = f"Ringan {state['minor_b']}/2 • Berat {state['major_b']}/3"
+            foul_b_text.color = RED_ALERT if state["major_b"] >= 3 else AMBER
+
+            is_a = state["selected_team"] == "A"
+            team_a_card.bgcolor = CARD_ACTIVE if is_a else CARD_BG
+            team_a_card.border = border_all(2, GOLD if is_a else BORDER_COLOR)
+            team_b_card.bgcolor = CARD_ACTIVE if not is_a else CARD_BG
+            team_b_card.border = border_all(2, GOLD if not is_a else BORDER_COLOR)
+
+            active_name = state["team_a"] if is_a else state["team_b"]
+            opp_name = state["team_b"] if is_a else state["team_a"]
+
+            if locked:
+                active_team_banner.value = "🔒 TERKUNCI (SAH 3/3) — Klik 'Match Baru (0-0)'"
+                active_team_banner.color = EMERALD
+            elif awaiting_set:
+                active_team_banner.value = f"⏸ MENUNGGU MULAI SET {state['set_num']}"
+                active_team_banner.color = GOLD
+            else:
+                active_team_banner.value = f"Tim Aktif: {active_name}"
+                active_team_banner.color = GOLD
+
+            penalty_target_banner.value = f"⚠️ PELANGGAR / WO: {active_name} → POIN KE {opp_name}"
+
+            bm = state["bonus_mode"]
+            btn_bonus_1x.bgcolor = EMERALD if bm == "1x" else CARD_ACTIVE
+            btn_bonus_1x.color = BG_DARK if bm == "1x" else TEXT_PRIMARY
+            btn_bonus_2x.bgcolor = GOLD if bm == "2x" else CARD_ACTIVE
+            btn_bonus_2x.color = BG_DARK if bm == "2x" else TEXT_PRIMARY
+            btn_bonus_50.bgcolor = PURPLE_SPECIAL if bm == "+50" else CARD_ACTIVE
+            btn_bonus_50.color = TEXT_PRIMARY
+
+            update_timer_ui()
+
+            set_records_column.controls.clear()
+            s_recs = state.get("set_records", [])
+            if not s_recs:
+                set_records_column.controls.append(ft.Text(f"Set {state['set_num']} berjalan ({state['score_a']} - {state['score_b']}).", size=11, color=TEXT_MUTED))
+            else:
+                for sr_item in s_recs:
+                    set_records_column.controls.append(
+                        ft.Container(
+                            padding=pad_sym(10, 5),
+                            border_radius=7,
+                            bgcolor=BG_DARK,
+                            border=border_all(1, BORDER_COLOR),
+                            content=ft.Row(
+                                alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                                controls=[
+                                    ft.Text(f"Set {sr_item.get('set')}: {sr_item.get('score_a')} - {sr_item.get('score_b')}", size=11, weight=ft.FontWeight.BOLD, color=TEXT_PRIMARY),
+                                    ft.Text(f"🏆 {sr_item.get('winner')}", size=11, weight=ft.FontWeight.BOLD, color=EMERALD),
+                                ],
+                            ),
+                        )
+                    )
+
+            ref_notes_column.controls.clear()
+            notes = state.get("referee_notes", [])
+            if not notes:
+                ref_notes_column.controls.append(ft.Text("Belum ada catatan wasit.", size=11, color=TEXT_MUTED))
+            else:
+                for n_idx, note_txt in enumerate(notes):
+                    def make_remove_note(del_i: int):
+                        def _rm(ev):
+                            if 0 <= del_i < len(state.get("referee_notes", [])):
+                                state["referee_notes"].pop(del_i)
+                                save_state()
+                                refresh_ui()
+                        return _rm
+
+                    ref_notes_column.controls.append(
+                        ft.Container(
+                            padding=pad_sym(8, 4),
+                            border_radius=8,
+                            bgcolor=BG_DARK,
+                            border=border_all(1, BORDER_COLOR),
+                            content=ft.Row(
+                                alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                                controls=[
+                                    ft.Text(note_txt, size=11, color=TEXT_PRIMARY, expand=True),
+                                    ft.IconButton(icon=get_icon("CLOSE"), icon_size=14, icon_color=TEXT_MUTED, on_click=make_remove_note(n_idx)),
+                                ],
+                            ),
+                        )
+                    )
+
+            history_column.controls.clear()
+            if not state["history"]:
+                history_column.controls.append(ft.Text("Belum ada catatan poin di set ini.", size=11, color=TEXT_MUTED))
+            else:
+                total_items = len(state["history"])
+                for idx, item in enumerate(reversed(state["history"])):
+                    item_no = total_items - idx
+                    t_hms = f"[{item.get('time')}] " if item.get("time") else ""
+                    t_name = state["team_a"] if item["team"] == "A" else state["team_b"]
+                    pts_str = item.get("points_str", "")
+                    lbl = item.get("label", "")
+                    tr_txt = f" ({item.get('transition')})" if item.get("transition") else ""
+                    if any(k in lbl for k in ("PELANGGARAN", "Pass Palsu", "Ringan", "DISKUALIFIKASI", "PROTES", "WO (")):
+                        badge_col = RED_ALERT
+                    elif any(k in lbl for k in ("APOLLO", "BALAK", "Sempurna")):
+                        badge_col = PURPLE_SPECIAL
+                    elif "Beradu" in lbl:
+                        badge_col = GOLD
+                    else:
+                        badge_col = EMERALD
+
+                    history_column.controls.append(
+                        ft.Container(
+                            padding=pad_sym(8, 5),
+                            border_radius=8,
+                            bgcolor=BG_DARK,
+                            border=border_all(1, BORDER_COLOR),
+                            content=ft.Row(
+                                alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                                controls=[
+                                    ft.Text(f"#{item_no} {t_hms}{t_name} • {lbl}{tr_txt}", size=11, color=TEXT_PRIMARY, expand=True),
+                                    ft.Text(pts_str, size=11, weight=ft.FontWeight.BOLD, color=badge_col),
+                                ],
+                            ),
+                        )
+                    )
+
+            archive_btn_label.value = f"📂 Arsip ({len(saved_matches)})"
+
+            ref_name_field.value = state.get("referee_name", "")
+            red_rep_field.value = state.get("red_rep_name", "")
+            blue_rep_field.value = state.get("blue_rep_name", "")
+
+            ref_reject_reason_field.value = state.get("referee_reject_reason", "")
+            red_reject_reason_field.value = state.get("red_reject_reason", "")
+            blue_reject_reason_field.value = state.get("blue_reject_reason", "")
+
+            red_team_label_text.value = f"● MERAH ({state['team_a']})"
+            blue_team_label_text.value = f"● BIRU ({state['team_b']})"
+
+            finish_tag = " [SELESAI]" if state.get("match_finished") else ""
+            approval_summary_text.value = (
+                f"Hasil{finish_tag}: {state['team_a']} vs {state['team_b']} • "
+                f"Set ({state['sets_a']}-{state['sets_b']}) • Poin ({state['score_a']}-{state['score_b']})"
+            )
+
+            ref_dec = state.get("referee_decision", "")
+            red_dec = state.get("red_decision", "")
+            blue_dec = state.get("blue_decision", "")
+
+            _update_party_buttons(ref_dec, state.get("approve_referee_time", ""), btn_approve_ref, btn_reject_ref, ref_reject_reason_field, ref_approve_subtext, "Wasit")
+            _update_party_buttons(red_dec, state.get("approve_red_time", ""), btn_approve_red, btn_reject_red, red_reject_reason_field, red_approve_subtext, "Merah")
+            _update_party_buttons(blue_dec, state.get("approve_blue_time", ""), btn_approve_blue, btn_reject_blue, blue_reject_reason_field, blue_approve_subtext, "Biru")
+
+            decisions = [ref_dec, red_dec, blue_dec]
+            approved_count = decisions.count("setuju")
+            rejected_count = decisions.count("tidak_setuju")
+
+            if approved_count == 3:
+                approval_status_banner.value = "🔒 SAH & TERKUNCI (3/3 Setuju)"
+                approval_status_banner.color = EMERALD
+                approval_panel.border = border_all(2, EMERALD)
+            elif rejected_count > 0:
+                approval_status_banner.value = f"⚠️ KEBERATAN (Setuju {approved_count}/3 • Tolak {rejected_count}/3)"
+                approval_status_banner.color = RED_ALERT
+                approval_panel.border = border_all(2, RED_ALERT)
+            else:
+                approval_status_banner.value = f"⏳ Pengesahan: {approved_count}/3 Setuju"
+                approval_status_banner.color = AMBER
+                approval_panel.border = border_all(1, GOLD if state.get("match_finished") else BORDER_COLOR)
+
             page.update()
-        except Exception:
-            pass
+        except Exception as exc:
+            try:
+                err_box = ft.Container(
+                    padding=12,
+                    bgcolor="#451218",
+                    border=border_all(1, RED_ALERT),
+                    content=ft.Text(f"UI Error: {exc}\n{traceback.format_exc()[-400:]}", size=11, color=TEXT_PRIMARY),
+                )
+                body_container.content = err_box
+                page.update()
+            except Exception:
+                pass
 
     def handle_manual_submit(e):
         if check_locked_guard() or check_awaiting_next_set_guard():
@@ -3255,7 +3262,6 @@ def main(page: ft.Page):
     portrait_column = ft.Column(
         spacing=10,
         scroll=ft.ScrollMode.AUTO,
-        expand=True,
         controls=[
             score_cards_row,
             next_set_banner,
@@ -3276,15 +3282,6 @@ def main(page: ft.Page):
         content=portrait_column,
     )
 
-    def on_page_resize(e):
-        body_container.content = portrait_column
-        try:
-            page.update()
-        except Exception:
-            pass
-
-    page.on_resized = on_page_resize
-
     root_layout = ft.Column(
         expand=True,
         spacing=4,
@@ -3296,6 +3293,9 @@ def main(page: ft.Page):
     )
 
     page.add(root_layout)
+    load_state()
+    if "sound_mode" not in state:
+        state["sound_mode"] = "all" if state.get("sound_on", True) else "mute"
     refresh_ui()
 
 
