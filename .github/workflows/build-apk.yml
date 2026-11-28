@@ -66,6 +66,8 @@ jobs:
               "voice_beradu_menang.mp3": "Batu beradu menang, tambah semua sisa mata.",
               "voice_beradu_kalah.mp3": "Batu beradu kalah, semua sisa mata dikali dua untuk lawan.",
               "voice_beradu_seri.mp3": "Batu beradu seri, semua sisa mata untuk lawan.",
+              "voice_waktu_habis.mp3": "Waktu habis.",
+              "voice_wo.mp3": "Walk over, lawan menang.",
           }
 
           for filename, text in voices.items():
