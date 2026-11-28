@@ -37,11 +37,6 @@ TEXT_PRIMARY = "#F8FAFC"
 TEXT_MUTED = "#94A3B8"
 
 
-def get_icon(name: str):
-    icons_mod = getattr(ft, "Icons", None) or getattr(ft, "icons", None)
-    return getattr(icons_mod, name, None) if icons_mod else None
-
-
 def border_all(width: float, color: str):
     border_mod = getattr(ft, "Border", None) or getattr(ft, "border", None)
     return border_mod.all(width, color) if border_mod else None
@@ -493,54 +488,56 @@ def main(page: ft.Page):
         state["approve_red_time"] = ""
         state["approve_blue_time"] = ""
 
-    chime_paths = build_chime_sfx()
     audio_players = {}
-    AudioClass = getattr(fta, "Audio", None) if fta else None
-    ReleaseMode = getattr(fta, "ReleaseMode", None) if fta else None
 
-    def _attach_audio(key: str, src_path: str, autoplay: bool = False):
+    def init_audio_players():
+        AudioClass = getattr(fta, "Audio", None) if fta else None
+        ReleaseMode = getattr(fta, "ReleaseMode", None) if fta else None
         if not AudioClass:
             return
-        try:
-            kwargs = {
-                "src": src_path,
-                "autoplay": autoplay,
-                "volume": 1.0,
-            }
-            if ReleaseMode and hasattr(ReleaseMode, "STOP"):
-                kwargs["release_mode"] = ReleaseMode.STOP
-            player = AudioClass(**kwargs)
-            if hasattr(page, "services"):
-                page.services.append(player)
-            else:
-                page.overlay.append(player)
-            audio_players[key] = player
-        except Exception:
-            pass
 
-    for sound_key, wav_path in chime_paths.items():
-        if os.path.exists(wav_path):
-            _attach_audio(sound_key, wav_path, autoplay=False)
+        def _attach_audio(key: str, src_path: str):
+            try:
+                kwargs = {
+                    "src": src_path,
+                    "autoplay": False,
+                    "volume": 1.0,
+                }
+                if ReleaseMode and hasattr(ReleaseMode, "STOP"):
+                    kwargs["release_mode"] = ReleaseMode.STOP
+                player = AudioClass(**kwargs)
+                if hasattr(page, "services"):
+                    page.services.append(player)
+                else:
+                    page.overlay.append(player)
+                audio_players[key] = player
+            except Exception:
+                pass
 
-    voice_assets = {
-        "v_ringan": "voice_ringan.mp3",
-        "v_pen11": "voice_penalti_11.mp3",
-        "v_pen25": "voice_penalti_25.mp3",
-        "v_pass50": "voice_pass_palsu_50.mp3",
-        "v_pass_kalah": "voice_pass_palsu_kalah.mp3",
-        "v_apollo": "voice_apollo.mp3",
-        "v_7balak": "voice_7balak.mp3",
-        "v_2x": "voice_2x.mp3",
-        "v_balak50": "voice_balak50.mp3",
-        "v_beradu": "voice_beradu.mp3",
-        "v_beradu_menang": "voice_beradu_menang.mp3",
-        "v_beradu_kalah": "voice_beradu_kalah.mp3",
-        "v_beradu_seri": "voice_beradu_seri.mp3",
-        "v_waktu_habis": "voice_waktu_habis.mp3",
-        "v_wo": "voice_wo.mp3",
-    }
-    for v_key, asset_name in voice_assets.items():
-        _attach_audio(v_key, asset_name, autoplay=False)
+        chime_paths = build_chime_sfx()
+        for sound_key, wav_path in chime_paths.items():
+            if os.path.exists(wav_path):
+                _attach_audio(sound_key, wav_path)
+
+        voice_assets = {
+            "v_ringan": "voice_ringan.mp3",
+            "v_pen11": "voice_penalti_11.mp3",
+            "v_pen25": "voice_penalti_25.mp3",
+            "v_pass50": "voice_pass_palsu_50.mp3",
+            "v_pass_kalah": "voice_pass_palsu_kalah.mp3",
+            "v_apollo": "voice_apollo.mp3",
+            "v_7balak": "voice_7balak.mp3",
+            "v_2x": "voice_2x.mp3",
+            "v_balak50": "voice_balak50.mp3",
+            "v_beradu": "voice_beradu.mp3",
+            "v_beradu_menang": "voice_beradu_menang.mp3",
+            "v_beradu_kalah": "voice_beradu_kalah.mp3",
+            "v_beradu_seri": "voice_beradu_seri.mp3",
+            "v_waktu_habis": "voice_waktu_habis.mp3",
+            "v_wo": "voice_wo.mp3",
+        }
+        for v_key, asset_name in voice_assets.items():
+            _attach_audio(v_key, asset_name)
 
     async def _play_sound_async(player):
         try:
@@ -2858,7 +2855,7 @@ def main(page: ft.Page):
                                 alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
                                 controls=[
                                     ft.Text(note_txt, size=11, color=TEXT_PRIMARY, expand=True),
-                                    ft.IconButton(icon=get_icon("CLOSE"), icon_size=14, icon_color=TEXT_MUTED, on_click=make_remove_note(n_idx)),
+                                    make_button("✕", CARD_ACTIVE, TEXT_MUTED, make_remove_note(n_idx), height=28, font_size=10),
                                 ],
                             ),
                         )
@@ -3203,7 +3200,6 @@ def main(page: ft.Page):
         )
 
     approval_panel = ft.Container(
-        key="approval_section",
         padding=10,
         border_radius=12,
         bgcolor=CARD_BG,
@@ -3250,7 +3246,7 @@ def main(page: ft.Page):
                     alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
                     controls=[
                         ft.Text("AUDIT TRAIL RONDE & SANKSI", size=11, weight=ft.FontWeight.BOLD, color=TEXT_PRIMARY),
-                        ft.TextButton("Undo", icon=get_icon("UNDO"), on_click=undo_last),
+                        make_button("↩ Undo", CARD_ACTIVE, GOLD, undo_last, height=34, font_size=11),
                     ],
                 ),
                 history_column,
@@ -3292,11 +3288,17 @@ def main(page: ft.Page):
         ],
     )
 
-    page.add(root_layout)
+    SafeAreaCls = getattr(ft, "SafeArea", None)
+    if SafeAreaCls:
+        page.add(SafeAreaCls(expand=True, content=root_layout))
+    else:
+        page.add(root_layout)
+
     load_state()
     if "sound_mode" not in state:
         state["sound_mode"] = "all" if state.get("sound_on", True) else "mute"
     refresh_ui()
+    init_audio_players()
 
 
 if __name__ == "__main__":
