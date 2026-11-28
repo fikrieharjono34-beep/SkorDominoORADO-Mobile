@@ -840,26 +840,26 @@ def main(page: ft.Page):
             alignment=align_center(),
         )
 
-    match_meta_badge = ft.Text("", size=11, weight=ft.FontWeight.BOLD, color=GOLD)
+    match_meta_badge = ft.Text("", size=11, weight=ft.FontWeight.BOLD, color=GOLD, max_lines=1, overflow=ft.TextOverflow.ELLIPSIS)
     round_balak_text = ft.Text("", size=11, weight=ft.FontWeight.BOLD, color=EMERALD)
     opener_badge_text = ft.Text("", size=11, weight=ft.FontWeight.BOLD, color=TEXT_PRIMARY, max_lines=1)
 
-    team_a_name_text = ft.Text(state["team_a"], size=15, weight=ft.FontWeight.BOLD, color=TEXT_PRIMARY, max_lines=1, overflow=ft.TextOverflow.ELLIPSIS)
-    team_b_name_text = ft.Text(state["team_b"], size=15, weight=ft.FontWeight.BOLD, color=TEXT_PRIMARY, max_lines=1, overflow=ft.TextOverflow.ELLIPSIS)
-    players_a_subtext = ft.Text("", size=10, color=TEXT_MUTED, max_lines=1, overflow=ft.TextOverflow.ELLIPSIS)
-    players_b_subtext = ft.Text("", size=10, color=TEXT_MUTED, max_lines=1, overflow=ft.TextOverflow.ELLIPSIS)
+    team_a_name_text = ft.Text(state["team_a"], size=15, weight=ft.FontWeight.BOLD, color=TEXT_PRIMARY, max_lines=1, overflow=ft.TextOverflow.ELLIPSIS, text_align=ft.TextAlign.CENTER)
+    team_b_name_text = ft.Text(state["team_b"], size=15, weight=ft.FontWeight.BOLD, color=TEXT_PRIMARY, max_lines=1, overflow=ft.TextOverflow.ELLIPSIS, text_align=ft.TextAlign.CENTER)
+    players_a_subtext = ft.Text("", size=10, color=TEXT_MUTED, max_lines=1, overflow=ft.TextOverflow.ELLIPSIS, text_align=ft.TextAlign.CENTER)
+    players_b_subtext = ft.Text("", size=10, color=TEXT_MUTED, max_lines=1, overflow=ft.TextOverflow.ELLIPSIS, text_align=ft.TextAlign.CENTER)
 
-    score_a_text = ft.Text(str(state["score_a"]), size=42, weight=ft.FontWeight.W_900, color=TEXT_PRIMARY)
-    score_b_text = ft.Text(str(state["score_b"]), size=42, weight=ft.FontWeight.W_900, color=TEXT_PRIMARY)
+    score_a_text = ft.Text(str(state["score_a"]), size=42, weight=ft.FontWeight.BOLD, color=TEXT_PRIMARY, text_align=ft.TextAlign.CENTER)
+    score_b_text = ft.Text(str(state["score_b"]), size=42, weight=ft.FontWeight.BOLD, color=TEXT_PRIMARY, text_align=ft.TextAlign.CENTER)
 
-    status_a_text = ft.Text("", size=11, weight=ft.FontWeight.W_600, color=TEXT_MUTED)
-    status_b_text = ft.Text("", size=11, weight=ft.FontWeight.W_600, color=TEXT_MUTED)
+    status_a_text = ft.Text("", size=11, weight=ft.FontWeight.BOLD, color=TEXT_MUTED, text_align=ft.TextAlign.CENTER)
+    status_b_text = ft.Text("", size=11, weight=ft.FontWeight.BOLD, color=TEXT_MUTED, text_align=ft.TextAlign.CENTER)
 
-    foul_a_text = ft.Text("", size=10, weight=ft.FontWeight.W_600, color=AMBER)
-    foul_b_text = ft.Text("", size=10, weight=ft.FontWeight.W_600, color=AMBER)
+    foul_a_text = ft.Text("", size=10, weight=ft.FontWeight.BOLD, color=AMBER, text_align=ft.TextAlign.CENTER)
+    foul_b_text = ft.Text("", size=10, weight=ft.FontWeight.BOLD, color=AMBER, text_align=ft.TextAlign.CENTER)
 
-    sound_mode_btn = make_button("🔊 Meriah", CARD_ACTIVE, EMERALD, None, height=34, font_size=11)
-    dispute_header_btn = make_button("⚖️ Protes", CARD_ACTIVE, AMBER, open_dispute_dialog, height=34, font_size=11)
+    sound_mode_btn = make_button("🔊 Meriah", CARD_ACTIVE, EMERALD, None, expand=True, height=34, font_size=11)
+    dispute_header_btn = make_button("⚖️ Protes", CARD_ACTIVE, AMBER, open_dispute_dialog, expand=True, height=34, font_size=11)
 
     def cycle_sound_mode(e):
         cur = state.get("sound_mode", "all")
@@ -881,7 +881,7 @@ def main(page: ft.Page):
 
     sound_mode_btn.on_click = cycle_sound_mode
 
-    timer_display_text = ft.Text("30s", size=22, weight=ft.FontWeight.W_900, color=EMERALD)
+    timer_display_text = ft.Text("30s", size=22, weight=ft.FontWeight.BOLD, color=EMERALD)
     timer_status_text = ft.Text("Siap • 30 Detik", size=10, color=TEXT_MUTED)
     btn_timer_next = make_button("▶ Mulai 30s", EMERALD, BG_DARK, None, expand=True, height=40, font_size=11)
     btn_timer_pause = make_button("⏸", CARD_ACTIVE, GOLD, None, height=40, font_size=12)
@@ -1032,13 +1032,8 @@ def main(page: ft.Page):
         ft.TextField(
             label="Poin Sisa Batu",
             hint_text="Contoh: 18",
-            keyboard_type=ft.KeyboardType.NUMBER,
-            text_align=ft.TextAlign.CENTER,
             border_color=BORDER_COLOR,
             focused_border_color=GOLD,
-            height=44,
-            content_padding=pad_sym(10, 6),
-            expand=True,
         )
     )
 
@@ -1048,17 +1043,13 @@ def main(page: ft.Page):
             hint_text="Contoh: Shuffle ulang 5 balak",
             border_color=BORDER_COLOR,
             focused_border_color=GOLD,
-            height=42,
-            text_size=12,
-            content_padding=pad_sym(10, 6),
-            expand=True,
         )
     )
 
     set_records_column = ft.Column(spacing=4)
     ref_notes_column = ft.Column(spacing=5)
     history_column = ft.Column(spacing=5)
-    archive_btn_label = ft.Text("", size=12, weight=ft.FontWeight.BOLD, color=GOLD)
+    archive_btn_label = ft.Text("", size=12, weight=ft.FontWeight.BOLD, color=GOLD, text_align=ft.TextAlign.CENTER)
 
     next_set_banner_text = ft.Text("", size=11, weight=ft.FontWeight.BOLD, color=GOLD, expand=True)
     btn_start_next_set_banner = make_button("▶ Mulai Set", EMERALD, BG_DARK, start_awaited_set, height=36, font_size=11)
@@ -1078,7 +1069,7 @@ def main(page: ft.Page):
         ),
     )
 
-    approval_summary_text = ft.Text("", size=11, weight=ft.FontWeight.W_600, color=TEXT_MUTED)
+    approval_summary_text = ft.Text("", size=11, weight=ft.FontWeight.BOLD, color=TEXT_MUTED)
     approval_status_banner = ft.Text("", size=12, weight=ft.FontWeight.BOLD, color=AMBER)
 
     def on_approval_text_change(field_key: str):
@@ -1094,9 +1085,6 @@ def main(page: ft.Page):
             value=state.get("referee_name", ""),
             border_color=BORDER_COLOR,
             focused_border_color=GOLD,
-            height=40,
-            text_size=12,
-            content_padding=pad_sym(10, 4),
             on_change=on_approval_text_change("referee_name"),
         )
     )
@@ -1108,9 +1096,6 @@ def main(page: ft.Page):
             value=state.get("red_rep_name", ""),
             border_color=BORDER_COLOR,
             focused_border_color=RED_ALERT,
-            height=40,
-            text_size=12,
-            content_padding=pad_sym(10, 4),
             on_change=on_approval_text_change("red_rep_name"),
         )
     )
@@ -1122,9 +1107,6 @@ def main(page: ft.Page):
             value=state.get("blue_rep_name", ""),
             border_color=BORDER_COLOR,
             focused_border_color=BLUE_TEAM,
-            height=40,
-            text_size=12,
-            content_padding=pad_sym(10, 4),
             on_change=on_approval_text_change("blue_rep_name"),
         )
     )
@@ -1139,8 +1121,6 @@ def main(page: ft.Page):
             max_lines=2,
             border_color=RED_ALERT,
             focused_border_color=GOLD,
-            text_size=12,
-            content_padding=pad_sym(10, 6),
             visible=(state.get("referee_decision") == "tidak_setuju"),
             on_change=on_approval_text_change("referee_reject_reason"),
         )
@@ -1156,8 +1136,6 @@ def main(page: ft.Page):
             max_lines=2,
             border_color=RED_ALERT,
             focused_border_color=GOLD,
-            text_size=12,
-            content_padding=pad_sym(10, 6),
             visible=(state.get("red_decision") == "tidak_setuju"),
             on_change=on_approval_text_change("red_reject_reason"),
         )
@@ -1173,8 +1151,6 @@ def main(page: ft.Page):
             max_lines=2,
             border_color=RED_ALERT,
             focused_border_color=GOLD,
-            text_size=12,
-            content_padding=pad_sym(10, 6),
             visible=(state.get("blue_decision") == "tidak_setuju"),
             on_change=on_approval_text_change("blue_reject_reason"),
         )
@@ -1478,7 +1454,6 @@ def main(page: ft.Page):
             min_lines=8,
             max_lines=14,
             read_only=True,
-            text_size=11,
             border_color=BORDER_COLOR,
         )
 
@@ -1904,7 +1879,7 @@ def main(page: ft.Page):
                 tight=True,
                 spacing=8,
                 controls=[
-                    ft.Text(f"Keterangan: {win_reason}", size=12, weight=ft.FontWeight.W_600, color=EMERALD),
+                    ft.Text(f"Keterangan: {win_reason}", size=12, weight=ft.FontWeight.BOLD, color=EMERALD),
                     ft.Text(f"Skor Akhir Set: {winner_name} ({winner_score}) vs {loser_name} ({loser_score})", size=12, color=TEXT_PRIMARY),
                     ft.Text(apollo_note, size=11, weight=ft.FontWeight.BOLD, color=PURPLE_SPECIAL if is_apollo else GOLD),
                 ],
@@ -2082,22 +2057,16 @@ def main(page: ft.Page):
             ft.TextField(
                 label=f"Sisa Mata {state['team_a']}",
                 hint_text="Contoh: 11",
-                keyboard_type=ft.KeyboardType.NUMBER,
-                text_align=ft.TextAlign.CENTER,
                 border_color=RED_ALERT,
                 focused_border_color=GOLD,
-                height=44,
             )
         )
         tf_sisa_b = bind_typing_guard(
             ft.TextField(
                 label=f"Sisa Mata {state['team_b']}",
                 hint_text="Contoh: 24",
-                keyboard_type=ft.KeyboardType.NUMBER,
-                text_align=ft.TextAlign.CENTER,
                 border_color=BLUE_TEAM,
                 focused_border_color=GOLD,
-                height=44,
             )
         )
 
@@ -2631,7 +2600,7 @@ def main(page: ft.Page):
             horizontal_alignment=ft.CrossAxisAlignment.CENTER,
             spacing=2,
             controls=[
-                ft.Text("● TIM MERAH", size=10, weight=ft.FontWeight.BOLD, color=RED_ALERT),
+                ft.Text("● TIM MERAH", size=10, weight=ft.FontWeight.BOLD, color=RED_ALERT, text_align=ft.TextAlign.CENTER),
                 team_a_name_text,
                 players_a_subtext,
                 score_a_text,
@@ -2652,7 +2621,7 @@ def main(page: ft.Page):
             horizontal_alignment=ft.CrossAxisAlignment.CENTER,
             spacing=2,
             controls=[
-                ft.Text("● TIM BIRU", size=10, weight=ft.FontWeight.BOLD, color=BLUE_TEAM),
+                ft.Text("● TIM BIRU", size=10, weight=ft.FontWeight.BOLD, color=BLUE_TEAM, text_align=ft.TextAlign.CENTER),
                 team_b_name_text,
                 players_b_subtext,
                 score_b_text,
@@ -2951,7 +2920,7 @@ def main(page: ft.Page):
                     border=border_all(1, RED_ALERT),
                     content=ft.Text(f"UI Error: {exc}\n{traceback.format_exc()[-400:]}", size=11, color=TEXT_PRIMARY),
                 )
-                body_container.content = err_box
+                main_list.controls = [err_box]
                 page.update()
             except Exception:
                 pass
@@ -2981,49 +2950,48 @@ def main(page: ft.Page):
             spacing=6,
             controls=[
                 ft.Row(
-                    alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                    spacing=8,
                     controls=[
-                        ft.Row(
-                            spacing=8,
+                        logo_widget,
+                        ft.Column(
+                            spacing=1,
                             expand=True,
                             controls=[
-                                logo_widget,
-                                ft.Column(
-                                    spacing=1,
-                                    expand=True,
-                                    controls=[
-                                        ft.Text("ORADO DOMINO 101", size=14, weight=ft.FontWeight.BOLD, color=TEXT_PRIMARY, max_lines=1, overflow=ft.TextOverflow.ELLIPSIS),
-                                        match_meta_badge,
-                                    ],
-                                ),
-                            ],
-                        ),
-                        ft.Row(
-                            spacing=4,
-                            controls=[
-                                sound_mode_btn,
-                                dispute_header_btn,
-                                make_button("📖", CARD_ACTIVE, TEXT_PRIMARY, open_rules_dialog, height=34, font_size=12),
-                                make_button("⚙️", CARD_ACTIVE, GOLD, open_settings_dialog, height=34, font_size=12),
+                                ft.Text("ORADO DOMINO 101", size=14, weight=ft.FontWeight.BOLD, color=TEXT_PRIMARY, max_lines=1, overflow=ft.TextOverflow.ELLIPSIS),
+                                match_meta_badge,
                             ],
                         ),
                     ],
                 ),
                 ft.Row(
-                    spacing=6,
-                    wrap=True,
+                    spacing=4,
+                    controls=[
+                        sound_mode_btn,
+                        dispute_header_btn,
+                        make_button("📖 Pasal", CARD_ACTIVE, TEXT_PRIMARY, open_rules_dialog, expand=True, height=34, font_size=11),
+                        make_button("⚙️ Meja", CARD_ACTIVE, GOLD, open_settings_dialog, expand=True, height=34, font_size=11),
+                    ],
+                ),
+                ft.Row(
+                    alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                    spacing=4,
                     controls=[
                         round_balak_text,
                         ft.Container(
-                            padding=pad_sym(8, 3),
+                            padding=pad_sym(8, 4),
                             border_radius=6,
                             bgcolor=BG_DARK,
                             border=border_all(1, BORDER_COLOR),
                             on_click=switch_opener_team,
                             content=opener_badge_text,
                         ),
-                        make_button("⇄ Sisi", CARD_ACTIVE, TEXT_PRIMARY, toggle_swap_sides, height=30, font_size=10),
-                        make_button("Reset", "#3B181E", RED_ALERT, confirm_reset_round, height=30, font_size=10),
+                        ft.Row(
+                            spacing=4,
+                            controls=[
+                                make_button("⇄ Sisi", CARD_ACTIVE, TEXT_PRIMARY, toggle_swap_sides, height=30, font_size=10),
+                                make_button("Reset", "#3B181E", RED_ALERT, confirm_reset_round, height=30, font_size=10),
+                            ],
+                        ),
                     ],
                 ),
             ],
@@ -3076,8 +3044,8 @@ def main(page: ft.Page):
                 ft.Row(
                     spacing=6,
                     controls=[
-                        manual_score_input,
-                        make_button("TAMBAH", EMERALD, BG_DARK, handle_manual_submit, height=44, font_size=11),
+                        ft.Container(expand=True, content=manual_score_input),
+                        make_button("TAMBAH", EMERALD, BG_DARK, handle_manual_submit, height=46, font_size=11),
                     ],
                 ),
                 ft.Row(spacing=6, controls=[btn_tile_calc, btn_batu_beradu]),
@@ -3173,8 +3141,8 @@ def main(page: ft.Page):
                 ft.Row(
                     spacing=6,
                     controls=[
-                        ref_note_input,
-                        make_button("CATAT", GOLD, BG_DARK, handle_submit_ref_note, height=42, font_size=11),
+                        ft.Container(expand=True, content=ref_note_input),
+                        make_button("CATAT", GOLD, BG_DARK, handle_submit_ref_note, height=46, font_size=11),
                     ],
                 ),
                 ref_notes_column,
@@ -3255,9 +3223,10 @@ def main(page: ft.Page):
         ),
     )
 
-    portrait_column = ft.Column(
+    main_list = ft.ListView(
+        expand=True,
         spacing=10,
-        scroll=ft.ScrollMode.AUTO,
+        padding=pad_sym(8, 6),
         controls=[
             score_cards_row,
             next_set_banner,
@@ -3272,19 +3241,13 @@ def main(page: ft.Page):
         ],
     )
 
-    body_container = ft.Container(
-        expand=True,
-        padding=pad_sym(8, 6),
-        content=portrait_column,
-    )
-
     root_layout = ft.Column(
         expand=True,
         spacing=4,
         controls=[
             header,
             dispute_banner,
-            body_container,
+            main_list,
         ],
     )
 
