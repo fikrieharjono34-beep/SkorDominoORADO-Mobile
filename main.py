@@ -677,11 +677,6 @@ def main(page: ft.Page):
         except Exception:
             pass
 
-    def is_landscape_layout() -> bool:
-        w = getattr(page, "width", 0) or 0
-        h = getattr(page, "height", 0) or 0
-        return bool(w >= 680 and w >= h)
-
     def open_rules_dialog(e):
         play_sfx("click")
         rules_items = [
@@ -2952,8 +2947,10 @@ def main(page: ft.Page):
             approval_status_banner.color = AMBER
             approval_panel.border = border_all(1, GOLD if state.get("match_finished") else BORDER_COLOR)
 
-        rebuild_orientation_layout()
-        page.update()
+        try:
+            page.update()
+        except Exception:
+            pass
 
     def handle_manual_submit(e):
         if check_locked_guard() or check_awaiting_next_set_guard():
@@ -3255,8 +3252,6 @@ def main(page: ft.Page):
         ),
     )
 
-    body_container = ft.Container(expand=True, padding=pad_sym(8, 6))
-
     portrait_column = ft.Column(
         spacing=10,
         scroll=ft.ScrollMode.AUTO,
@@ -3275,44 +3270,18 @@ def main(page: ft.Page):
         ],
     )
 
-    landscape_row = ft.Row(
-        spacing=10,
-        vertical_alignment=ft.CrossAxisAlignment.START,
+    body_container = ft.Container(
         expand=True,
-        controls=[
-            ft.Column(
-                expand=5,
-                spacing=10,
-                scroll=ft.ScrollMode.AUTO,
-                controls=[
-                    score_cards_row,
-                    next_set_banner,
-                    timer_panel,
-                    input_panel,
-                ],
-            ),
-            ft.Column(
-                expand=5,
-                spacing=10,
-                scroll=ft.ScrollMode.AUTO,
-                controls=[
-                    penalty_panel,
-                    special_panel,
-                    set_recap_panel,
-                    referee_panel,
-                    approval_panel,
-                    history_panel,
-                ],
-            ),
-        ],
+        padding=pad_sym(8, 6),
+        content=portrait_column,
     )
 
-    def rebuild_orientation_layout():
-        body_container.content = landscape_row if is_landscape_layout() else portrait_column
-
     def on_page_resize(e):
-        rebuild_orientation_layout()
-        page.update()
+        body_container.content = portrait_column
+        try:
+            page.update()
+        except Exception:
+            pass
 
     page.on_resized = on_page_resize
 
