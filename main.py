@@ -371,6 +371,7 @@ def main(page: ft.Page):
     }
 
     typing_active = [False]
+    is_landscape_mode = [False]
     saved_matches: list[dict] = []
 
     STORAGE_KEY = "orado_domino_101_mobile_state_v1"
@@ -685,7 +686,7 @@ def main(page: ft.Page):
             ("Aturan Batu Beradu (Gaple / Macet)", "• Menang Adu: Semua sisa mata (sendiri + lawan) menjadi poin pemenang.\n• Kalah Adu: Semua sisa mata (sendiri + lawan) dikali 2 untuk lawan.\n• Seri Adu: Semua sisa mata diberikan kepada lawan."),
         ]
 
-        rules_col = ft.Column(spacing=8, scroll=ft.ScrollMode.AUTO, height=380)
+        rules_col = ft.Column(spacing=8, scroll=ft.ScrollMode.AUTO, height=340)
         for title_r, desc_r in rules_items:
             rules_col.controls.append(
                 ft.Container(
@@ -717,7 +718,7 @@ def main(page: ft.Page):
     dispute_banner_text = ft.Text("", size=11, weight=ft.FontWeight.BOLD, color=TEXT_PRIMARY, expand=True)
     dispute_banner = ft.Container(
         visible=state.get("dispute_active", False),
-        padding=pad_sym(10, 7),
+        padding=pad_sym(10, 6),
         bgcolor="#451218",
         border=border_all(1, RED_ALERT),
         content=ft.Row(
@@ -844,22 +845,73 @@ def main(page: ft.Page):
     round_balak_text = ft.Text("", size=11, weight=ft.FontWeight.BOLD, color=EMERALD)
     opener_badge_text = ft.Text("", size=11, weight=ft.FontWeight.BOLD, color=TEXT_PRIMARY, max_lines=1)
 
-    team_a_name_text = ft.Text(state["team_a"], size=15, weight=ft.FontWeight.BOLD, color=TEXT_PRIMARY, max_lines=1, overflow=ft.TextOverflow.ELLIPSIS, text_align=ft.TextAlign.CENTER)
-    team_b_name_text = ft.Text(state["team_b"], size=15, weight=ft.FontWeight.BOLD, color=TEXT_PRIMARY, max_lines=1, overflow=ft.TextOverflow.ELLIPSIS, text_align=ft.TextAlign.CENTER)
-    players_a_subtext = ft.Text("", size=10, color=TEXT_MUTED, max_lines=1, overflow=ft.TextOverflow.ELLIPSIS, text_align=ft.TextAlign.CENTER)
-    players_b_subtext = ft.Text("", size=10, color=TEXT_MUTED, max_lines=1, overflow=ft.TextOverflow.ELLIPSIS, text_align=ft.TextAlign.CENTER)
+    team_a_name_text = ft.Text(
+        state["team_a"],
+        size=16,
+        weight=ft.FontWeight.BOLD,
+        color=TEXT_PRIMARY,
+        max_lines=1,
+        overflow=ft.TextOverflow.ELLIPSIS,
+        text_align=ft.TextAlign.CENTER,
+    )
+    team_b_name_text = ft.Text(
+        state["team_b"],
+        size=16,
+        weight=ft.FontWeight.BOLD,
+        color=TEXT_PRIMARY,
+        max_lines=1,
+        overflow=ft.TextOverflow.ELLIPSIS,
+        text_align=ft.TextAlign.CENTER,
+    )
+    players_a_subtext = ft.Text("", size=11, color=TEXT_MUTED, max_lines=1, overflow=ft.TextOverflow.ELLIPSIS, text_align=ft.TextAlign.CENTER)
+    players_b_subtext = ft.Text("", size=11, color=TEXT_MUTED, max_lines=1, overflow=ft.TextOverflow.ELLIPSIS, text_align=ft.TextAlign.CENTER)
 
-    score_a_text = ft.Text(str(state["score_a"]), size=42, weight=ft.FontWeight.BOLD, color=TEXT_PRIMARY, text_align=ft.TextAlign.CENTER)
-    score_b_text = ft.Text(str(state["score_b"]), size=42, weight=ft.FontWeight.BOLD, color=TEXT_PRIMARY, text_align=ft.TextAlign.CENTER)
+    score_a_text = ft.Text(
+        str(state["score_a"]),
+        size=56,
+        weight=ft.FontWeight.BOLD,
+        color=TEXT_PRIMARY,
+        max_lines=1,
+        no_wrap=True,
+        text_align=ft.TextAlign.CENTER,
+    )
+    score_b_text = ft.Text(
+        str(state["score_b"]),
+        size=56,
+        weight=ft.FontWeight.BOLD,
+        color=TEXT_PRIMARY,
+        max_lines=1,
+        no_wrap=True,
+        text_align=ft.TextAlign.CENTER,
+    )
 
-    status_a_text = ft.Text("", size=11, weight=ft.FontWeight.BOLD, color=TEXT_MUTED, text_align=ft.TextAlign.CENTER)
-    status_b_text = ft.Text("", size=11, weight=ft.FontWeight.BOLD, color=TEXT_MUTED, text_align=ft.TextAlign.CENTER)
+    score_a_box = ft.Container(
+        padding=pad_sym(8, 8),
+        border_radius=12,
+        bgcolor=BG_DARK,
+        border=border_all(1, BORDER_COLOR),
+        alignment=align_center(),
+        content=score_a_text,
+    )
 
-    foul_a_text = ft.Text("", size=10, weight=ft.FontWeight.BOLD, color=AMBER, text_align=ft.TextAlign.CENTER)
-    foul_b_text = ft.Text("", size=10, weight=ft.FontWeight.BOLD, color=AMBER, text_align=ft.TextAlign.CENTER)
+    score_b_box = ft.Container(
+        padding=pad_sym(8, 8),
+        border_radius=12,
+        bgcolor=BG_DARK,
+        border=border_all(1, BORDER_COLOR),
+        alignment=align_center(),
+        content=score_b_text,
+    )
+
+    status_a_text = ft.Text("", size=12, weight=ft.FontWeight.BOLD, color=TEXT_MUTED, text_align=ft.TextAlign.CENTER)
+    status_b_text = ft.Text("", size=12, weight=ft.FontWeight.BOLD, color=TEXT_MUTED, text_align=ft.TextAlign.CENTER)
+
+    foul_a_text = ft.Text("", size=11, weight=ft.FontWeight.BOLD, color=AMBER, text_align=ft.TextAlign.CENTER)
+    foul_b_text = ft.Text("", size=11, weight=ft.FontWeight.BOLD, color=AMBER, text_align=ft.TextAlign.CENTER)
 
     sound_mode_btn = make_button("🔊 Meriah", CARD_ACTIVE, EMERALD, None, expand=True, height=34, font_size=11)
     dispute_header_btn = make_button("⚖️ Protes", CARD_ACTIVE, AMBER, open_dispute_dialog, expand=True, height=34, font_size=11)
+    rules_header_btn = make_button("📖 Pasal", CARD_ACTIVE, TEXT_PRIMARY, open_rules_dialog, expand=True, height=34, font_size=11)
 
     def cycle_sound_mode(e):
         cur = state.get("sound_mode", "all")
@@ -881,7 +933,7 @@ def main(page: ft.Page):
 
     sound_mode_btn.on_click = cycle_sound_mode
 
-    timer_display_text = ft.Text("30s", size=22, weight=ft.FontWeight.BOLD, color=EMERALD)
+    timer_display_text = ft.Text("30s", size=24, weight=ft.FontWeight.BOLD, color=EMERALD)
     timer_status_text = ft.Text("Siap • 30 Detik", size=10, color=TEXT_MUTED)
     btn_timer_next = make_button("▶ Mulai 30s", EMERALD, BG_DARK, None, expand=True, height=40, font_size=11)
     btn_timer_pause = make_button("⏸", CARD_ACTIVE, GOLD, None, height=40, font_size=12)
@@ -1488,7 +1540,7 @@ def main(page: ft.Page):
 
     def open_archive_dialog(e):
         play_sfx("click")
-        archive_list_col = ft.Column(spacing=8, scroll=ft.ScrollMode.AUTO, height=360)
+        archive_list_col = ft.Column(spacing=8, scroll=ft.ScrollMode.AUTO, height=340)
 
         def rebuild_archive_list():
             archive_list_col.controls.clear()
@@ -2547,6 +2599,8 @@ def main(page: ft.Page):
         )
         open_dialog(edit_dlg)
 
+    settings_header_btn = make_button("⚙️ Meja", CARD_ACTIVE, GOLD, open_settings_dialog, expand=True, height=34, font_size=11)
+
     def confirm_reset_round(e):
         play_sfx("shake")
 
@@ -2591,19 +2645,19 @@ def main(page: ft.Page):
 
     team_a_card = ft.Container(
         expand=True,
-        padding=10,
+        padding=12,
         border_radius=14,
         bgcolor=CARD_ACTIVE,
         border=border_all(2, GOLD),
         on_click=lambda e: select_team("A"),
         content=ft.Column(
             horizontal_alignment=ft.CrossAxisAlignment.CENTER,
-            spacing=2,
+            spacing=4,
             controls=[
-                ft.Text("● TIM MERAH", size=10, weight=ft.FontWeight.BOLD, color=RED_ALERT, text_align=ft.TextAlign.CENTER),
+                ft.Text("● TIM MERAH", size=11, weight=ft.FontWeight.BOLD, color=RED_ALERT, text_align=ft.TextAlign.CENTER),
                 team_a_name_text,
                 players_a_subtext,
-                score_a_text,
+                score_a_box,
                 status_a_text,
                 foul_a_text,
             ],
@@ -2612,19 +2666,19 @@ def main(page: ft.Page):
 
     team_b_card = ft.Container(
         expand=True,
-        padding=10,
+        padding=12,
         border_radius=14,
         bgcolor=CARD_BG,
         border=border_all(1, BORDER_COLOR),
         on_click=lambda e: select_team("B"),
         content=ft.Column(
             horizontal_alignment=ft.CrossAxisAlignment.CENTER,
-            spacing=2,
+            spacing=4,
             controls=[
-                ft.Text("● TIM BIRU", size=10, weight=ft.FontWeight.BOLD, color=BLUE_TEAM, text_align=ft.TextAlign.CENTER),
+                ft.Text("● TIM BIRU", size=11, weight=ft.FontWeight.BOLD, color=BLUE_TEAM, text_align=ft.TextAlign.CENTER),
                 team_b_name_text,
                 players_b_subtext,
-                score_b_text,
+                score_b_box,
                 status_b_text,
                 foul_b_text,
             ],
@@ -2750,8 +2804,11 @@ def main(page: ft.Page):
             is_a = state["selected_team"] == "A"
             team_a_card.bgcolor = CARD_ACTIVE if is_a else CARD_BG
             team_a_card.border = border_all(2, GOLD if is_a else BORDER_COLOR)
+            score_a_box.border = border_all(1, GOLD if is_a else BORDER_COLOR)
+
             team_b_card.bgcolor = CARD_ACTIVE if not is_a else CARD_BG
             team_b_card.border = border_all(2, GOLD if not is_a else BORDER_COLOR)
+            score_b_box.border = border_all(1, GOLD if not is_a else BORDER_COLOR)
 
             active_name = state["team_a"] if is_a else state["team_b"]
             opp_name = state["team_b"] if is_a else state["team_a"]
@@ -2920,7 +2977,7 @@ def main(page: ft.Page):
                     border=border_all(1, RED_ALERT),
                     content=ft.Text(f"UI Error: {exc}\n{traceback.format_exc()[-400:]}", size=11, color=TEXT_PRIMARY),
                 )
-                main_list.controls = [err_box]
+                body_host.content = err_box
                 page.update()
             except Exception:
                 pass
@@ -2942,60 +2999,12 @@ def main(page: ft.Page):
         for val in QUICK_SCORES
     ]
 
+    header_col = ft.Column(spacing=6, controls=[])
     header = ft.Container(
-        padding=pad_sym(10, 8),
+        padding=pad_sym(10, 6),
         bgcolor=CARD_BG,
         border=border_all(1, BORDER_COLOR),
-        content=ft.Column(
-            spacing=6,
-            controls=[
-                ft.Row(
-                    spacing=8,
-                    controls=[
-                        logo_widget,
-                        ft.Column(
-                            spacing=1,
-                            expand=True,
-                            controls=[
-                                ft.Text("ORADO DOMINO 101", size=14, weight=ft.FontWeight.BOLD, color=TEXT_PRIMARY, max_lines=1, overflow=ft.TextOverflow.ELLIPSIS),
-                                match_meta_badge,
-                            ],
-                        ),
-                    ],
-                ),
-                ft.Row(
-                    spacing=4,
-                    controls=[
-                        sound_mode_btn,
-                        dispute_header_btn,
-                        make_button("📖 Pasal", CARD_ACTIVE, TEXT_PRIMARY, open_rules_dialog, expand=True, height=34, font_size=11),
-                        make_button("⚙️ Meja", CARD_ACTIVE, GOLD, open_settings_dialog, expand=True, height=34, font_size=11),
-                    ],
-                ),
-                ft.Row(
-                    alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
-                    spacing=4,
-                    controls=[
-                        round_balak_text,
-                        ft.Container(
-                            padding=pad_sym(8, 4),
-                            border_radius=6,
-                            bgcolor=BG_DARK,
-                            border=border_all(1, BORDER_COLOR),
-                            on_click=switch_opener_team,
-                            content=opener_badge_text,
-                        ),
-                        ft.Row(
-                            spacing=4,
-                            controls=[
-                                make_button("⇄ Sisi", CARD_ACTIVE, TEXT_PRIMARY, toggle_swap_sides, height=30, font_size=10),
-                                make_button("Reset", "#3B181E", RED_ALERT, confirm_reset_round, height=30, font_size=10),
-                            ],
-                        ),
-                    ],
-                ),
-            ],
-        ),
+        content=header_col,
     )
 
     timer_panel = ft.Container(
@@ -3223,23 +3232,192 @@ def main(page: ft.Page):
         ),
     )
 
-    main_list = ft.ListView(
+    portrait_list = ft.ListView(
         expand=True,
         spacing=10,
         padding=pad_sym(8, 6),
+        controls=[],
+    )
+
+    landscape_left_list = ft.ListView(
+        expand=True,
+        spacing=8,
+        padding=pad_sym(6, 4),
+        controls=[],
+    )
+
+    landscape_right_list = ft.ListView(
+        expand=True,
+        spacing=8,
+        padding=pad_sym(6, 4),
+        controls=[],
+    )
+
+    landscape_row = ft.Row(
+        expand=True,
+        spacing=4,
         controls=[
-            score_cards_row,
-            next_set_banner,
-            timer_panel,
-            input_panel,
-            penalty_panel,
-            special_panel,
-            set_recap_panel,
-            referee_panel,
-            approval_panel,
-            history_panel,
+            ft.Container(expand=5, content=landscape_left_list),
+            ft.Container(expand=6, content=landscape_right_list),
         ],
     )
+
+    body_host = ft.Container(
+        expand=True,
+        content=portrait_list,
+    )
+
+    def detect_landscape() -> bool:
+        w = getattr(page, "width", None) or 0
+        h = getattr(page, "height", None) or 0
+        return bool(w > h and w >= 550)
+
+    def apply_responsive_layout(force: bool = False):
+        if typing_active[0] and not force:
+            return
+        new_land = detect_landscape()
+        if not force and new_land == is_landscape_mode[0]:
+            return
+        is_landscape_mode[0] = new_land
+
+        portrait_list.controls.clear()
+        landscape_left_list.controls.clear()
+        landscape_right_list.controls.clear()
+        header_col.controls.clear()
+
+        title_brand_row = ft.Row(
+            spacing=8,
+            expand=True,
+            controls=[
+                logo_widget,
+                ft.Column(
+                    spacing=1,
+                    expand=True,
+                    controls=[
+                        ft.Text(
+                            "ORADO DOMINO 101",
+                            size=14,
+                            weight=ft.FontWeight.BOLD,
+                            color=TEXT_PRIMARY,
+                            max_lines=1,
+                            overflow=ft.TextOverflow.ELLIPSIS,
+                        ),
+                        match_meta_badge,
+                    ],
+                ),
+            ],
+        )
+
+        action_btns_row = ft.Row(
+            spacing=4,
+            controls=[
+                sound_mode_btn,
+                dispute_header_btn,
+                rules_header_btn,
+                settings_header_btn,
+            ],
+        )
+
+        opener_tools_row = ft.Row(
+            alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+            spacing=4,
+            controls=[
+                round_balak_text,
+                ft.Container(
+                    padding=pad_sym(8, 4),
+                    border_radius=6,
+                    bgcolor=BG_DARK,
+                    border=border_all(1, BORDER_COLOR),
+                    on_click=switch_opener_team,
+                    content=opener_badge_text,
+                ),
+                ft.Row(
+                    spacing=4,
+                    controls=[
+                        make_button("⇄ Sisi", CARD_ACTIVE, TEXT_PRIMARY, toggle_swap_sides, height=30, font_size=10),
+                        make_button("Reset", "#3B181E", RED_ALERT, confirm_reset_round, height=30, font_size=10),
+                    ],
+                ),
+            ],
+        )
+
+        if new_land:
+            score_a_text.size = 52
+            score_b_text.size = 52
+            score_a_box.padding = pad_sym(6, 6)
+            score_b_box.padding = pad_sym(6, 6)
+            team_a_card.padding = 10
+            team_b_card.padding = 10
+            header.padding = pad_sym(10, 5)
+            header_col.spacing = 4
+            header_col.controls.extend([
+                ft.Row(
+                    spacing=8,
+                    controls=[
+                        title_brand_row,
+                        ft.Container(width=310, content=action_btns_row),
+                    ],
+                ),
+                opener_tools_row,
+            ])
+
+            landscape_left_list.controls.extend([
+                score_cards_row,
+                next_set_banner,
+                timer_panel,
+            ])
+            landscape_right_list.controls.extend([
+                input_panel,
+                penalty_panel,
+                special_panel,
+                set_recap_panel,
+                referee_panel,
+                approval_panel,
+                history_panel,
+            ])
+            body_host.content = landscape_row
+        else:
+            score_a_text.size = 56
+            score_b_text.size = 56
+            score_a_box.padding = pad_sym(8, 8)
+            score_b_box.padding = pad_sym(8, 8)
+            team_a_card.padding = 12
+            team_b_card.padding = 12
+            header.padding = pad_sym(10, 7)
+            header_col.spacing = 6
+            header_col.controls.extend([
+                title_brand_row,
+                action_btns_row,
+                opener_tools_row,
+            ])
+
+            portrait_list.controls.extend([
+                score_cards_row,
+                next_set_banner,
+                timer_panel,
+                input_panel,
+                penalty_panel,
+                special_panel,
+                set_recap_panel,
+                referee_panel,
+                approval_panel,
+                history_panel,
+            ])
+            body_host.content = portrait_list
+
+    def on_page_resized(e):
+        before = is_landscape_mode[0]
+        apply_responsive_layout(force=False)
+        if before != is_landscape_mode[0]:
+            try:
+                page.update()
+            except Exception:
+                pass
+
+    if hasattr(page, "on_resized"):
+        page.on_resized = on_page_resized
+    if hasattr(page, "on_resize"):
+        page.on_resize = on_page_resized
 
     root_layout = ft.Column(
         expand=True,
@@ -3247,7 +3425,7 @@ def main(page: ft.Page):
         controls=[
             header,
             dispute_banner,
-            main_list,
+            body_host,
         ],
     )
 
@@ -3260,6 +3438,7 @@ def main(page: ft.Page):
     load_state()
     if "sound_mode" not in state:
         state["sound_mode"] = "all" if state.get("sound_on", True) else "mute"
+    apply_responsive_layout(force=True)
     refresh_ui()
     init_audio_players()
 
